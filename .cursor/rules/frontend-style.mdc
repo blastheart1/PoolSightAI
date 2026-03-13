@@ -1,0 +1,45 @@
+---
+description: Frontend CSS, Tailwind, and accessibility standards for PoolSight AI
+alwaysApply: true
+---
+
+# Frontend CSS, Tailwind, and Accessibility Rules
+
+## Styling & CSS
+
+- **No inline styles**: Do not use `style={{ ... }}` in React components except for truly dynamic values that cannot be expressed with Tailwind (e.g. canvas coordinates). Prefer Tailwind utility classes and shared component primitives.
+- **Tailwind-first**: Use Tailwind CSS for layout, spacing, color, and typography. Create small wrapper components (e.g. `Button`, `Card`, `Badge`) instead of repeating long class strings.
+- **Design tokens**: Use Tailwind config for brand colors, spacing, and typography rather than hardcoded hex values in components.
+- **Consistent layout**: Use responsive Tailwind utilities (`sm: md: lg:`) to maintain a good experience on laptops, tablets, and mobile.
+
+## Accessibility (WCAG)
+
+- **Color contrast**: All text and icon colors must meet WCAG AA contrast against their backgrounds. Use Tailwind `text-*` and `bg-*` that follow the design system; avoid custom low-contrast hex values.
+- **Semantic HTML**: Prefer semantic elements (`button`, `nav`, `main`, `section`, `h1`–`h3`, `table` with `thead`/`tbody`) over generic `div`s, especially for navigation, headings, and tables.
+- **Keyboard support**: All interactive elements must be reachable and operable with keyboard only. Never rely solely on `onClick` on non-interactive tags; use `button`, `a`, or add correct `role`, `tabIndex`, and key handlers.
+- **ARIA & labels**: Provide accessible names (`aria-label`, `aria-labelledby`) for icons-only buttons and interactive controls where the visible label is not clear.
+
+## Badges / Pills
+
+- **Consistent dimensions**: All badge/pill components must use a shared `Badge` primitive with a fixed min-width so that all variants render with the same width (based on the widest expected label).
+- **Centralized mapping**: Maintain a single configuration map for badge variants (e.g. `critical`, `important`, `nice`, `future`, `billed`, `pending`) that defines label, colors, and icon so those stay consistent across the app.
+- **Text scale**: Use Tailwind text utilities for badges (`text-xs`, `font-semibold`, `tracking-wide`) instead of per-usage tweaks.
+
+## React + Tailwind Libraries
+
+- **Headless UI / Radix**: Prefer accessible primitives from `@headlessui/react` or `@radix-ui/react-*` for complex widgets (dialogs, menus, tabs) instead of hand-rolled versions.
+- **Helpers**: Use `clsx` and `tailwind-merge` (or `cn` helper) to compose Tailwind class names instead of manual string concatenation.
+- **Forms & inputs**: Use a small set of shared form components (e.g. `TextField`, `Slider`, `Toggle`) styled with Tailwind and built for accessibility.
+
+## Build & Dependencies
+
+- **Framework**: Use Next.js App Router with Tailwind CSS for the main web app.
+- **Dependencies** (install once in the project):
+  - Core: `next react react-dom`
+  - Styling: `tailwindcss postcss autoprefixer`
+  - UI helpers: `@headlessui/react @heroicons/react clsx tailwind-merge`
+- **Build commands**:
+  - `npm run dev` for local development
+  - `npm run build` for production build
+  - `npm run lint` to keep ESLint clean; fix accessibility and styling issues before merging.
+
