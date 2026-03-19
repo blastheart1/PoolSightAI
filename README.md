@@ -55,8 +55,10 @@ Then edit `.env.local`:
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Optional – for future Phase 3+ contextual memory / storage
-NEON_DATABASE_URL=postgresql://user:password@neon-host/dbname
+# Optional – for /projects (contract parsing, AI analysis, report entries)
+# Use DATABASE_URL or NEON_DATABASE_URL
+DATABASE_URL=postgresql://user:password@host/dbname
+# NEON_DATABASE_URL=postgresql://user:password@neon-host/dbname
 ```
 
 Notes:
@@ -73,6 +75,51 @@ npm run dev
 By default this binds to `localhost` (see `package.json`), which also avoids some network interface quirks.
 
 Open `http://localhost:3000` to view the app.
+
+### 5. Local database setup (for /projects)
+
+The **Projects** feature (contract parsing, line-item selection, AI analysis, saved report entries) requires a Postgres database. The app uses **Neon** (serverless Postgres) and **Drizzle ORM**.
+
+#### Option A: Neon (recommended)
+
+1. Sign up at [neon.tech](https://neon.tech) and create a project.
+2. Copy the connection string from the Neon dashboard (e.g. `postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require`).
+3. In `.env.local`, set either:
+   ```bash
+   DATABASE_URL=postgresql://...
+   ```
+   or
+   ```bash
+   NEON_DATABASE_URL=postgresql://...
+   ```
+4. Apply the schema to your database:
+   ```bash
+   npm run db:push
+   ```
+   Or generate and run migrations:
+   ```bash
+   npm run db:generate
+   npx drizzle-kit migrate
+   ```
+
+#### Option B: Local Postgres (auto-detected when not on Vercel)
+
+When running locally (not on Vercel), the app **auto-detects** and uses a default local URL if `DATABASE_URL` and `NEON_DATABASE_URL` are unset: `postgresql://<your-username>@localhost/calimingopoolsight`. So you can skip setting `.env.local` for the database when using local Postgres.
+
+1. Install and start Postgres (e.g. via Homebrew: `brew install postgresql@16 && brew services start postgresql@16`, or Docker).
+2. Create a database: `createdb calimingopoolsight` (or any name).
+3. Optionally set in `.env.local` to override the default (e.g. different port or user):
+   ```bash
+   DATABASE_URL=postgresql://localhost/calimingopoolsight
+   ```
+   (Adjust user/password if needed, e.g. `postgresql://user:password@localhost:5432/calimingopoolsight`.)
+4. Run `npm run db:push` (or generate + migrate as above). Drizzle Kit loads `.env.local` and uses the same auto-default when no URL is set.
+5. To see the resolved local Postgres URL (e.g. for a GUI client like TablePlus or pgAdmin), run `npm run db:url`. When you start the app with `npm run dev`, the URL is also logged once in the terminal (password redacted).
+
+#### Verify
+
+- With a valid `DATABASE_URL` or `NEON_DATABASE_URL`, open `http://localhost:3000/projects` to use the Projects flow.
+- If the database is not configured, the app will log a warning and project API routes will fail when called.
 
 Key Features
 ------------

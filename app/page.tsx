@@ -1,6 +1,6 @@
 import PoolsightView from "./PoolsightView";
 
 export default function Page() {
-  return <PoolsightView />;
+  return <PoolsightView initialTab="welcome" />;
 }
 

@@ -9,15 +9,20 @@ type AnalyzeRequest = {
   images?: AnalyzeImage[];
   pmUpdate?: string;
   projectName?: string;
+  /** Optional contract line item labels to align report rows to */
+  lineItemLabels?: string[];
 };
 
 type RecoStatus = "advance" | "hold" | "verify" | "ok";
+type PhotoSupported = "yes" | "no" | "partial" | "unclear";
 
 type RecoRow = {
   line_item: string;
   current_percent: string;
   suggested_percent: string;
+  suggested_percent_range: string;
   status: RecoStatus;
+  photo_supported: PhotoSupported;
   notes: string;
 };
 
@@ -38,8 +43,29 @@ type ReconciliationResponse = {
   as_of_date: string;
   overall_progress: number | null;
   confidence: string;
+  image_coverage_note?: string;
+  /** Optional narrative explaining how photos align with any architectural rendering/drawing included. */
+  rendering_relation_note?: string;
+  /** Optional narrative summary of the analysis for the user */
+  summary?: string;
   sections: RecoSection[];
   key_actions: KeyAction[];
+};
+
+export type AnalyzeMeta = {
+  ok: boolean;
+  requestId: string;
+  elapsedMs: number;
+  model: string;
+  errorCode?:
+    | "anthropic_api_error"
+    | "rate_limit"
+    | "tool_missing"
+    | "tool_incomplete"
+    | "validation_failed"
+    | "timeout"
+    | "server_error";
+  rawContent?: unknown;
 };
 
 const SECTION_TEMPLATES: Array<{ id: string; title: string }> = [
@@ -51,6 +77,119 @@ const SECTION_TEMPLATES: Array<{ id: string; title: string }> = [
   { id: "landscape_irrigation", title: "LANDSCAPE & IRRIGATION" },
   { id: "utilities", title: "GAS, PLUMBING & ELECTRICAL" },
 ];
+
+const MAX_SECTIONS = 20;
+const MAX_ROWS_PER_SECTION = 50;
+const MAX_KEY_ACTIONS = 30;
+const MAX_STRING_LENGTH = 2000;
+/** Cap images to stay under typical org rate limits (e.g. 10k input tokens/min). */
+const MAX_IMAGES = 10;
+/** Max line item labels sent in the prompt; each truncated to this length to limit tokens. */
+const MAX_LINE_ITEM_LABEL_LENGTH = 150;
+const MAX_LINE_ITEM_LABELS = 35;
+
+const RECONCILE_BILLING_TOOL_NAME = "reconcile_billing";
+
+const RECONCILE_BILLING_TOOL = {
+  name: RECONCILE_BILLING_TOOL_NAME,
+  description:
+    "Submit the billing reconciliation result for the construction site. Include project, as_of_date, confidence (low|medium|high), image_coverage_note, optional rendering_relation_note, summary, sections (each with id, title, rows), and key_actions. For each row: line_item, current_percent, suggested_percent, suggested_percent_range, status (advance|hold|verify|ok), photo_supported (yes|no|partial|unclear), and notes that reference specific images. Priority for key_actions: immediate|this_week|verify|next_cycle.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      project: { type: "string" as const, description: "Project or site name" },
+      as_of_date: { type: "string" as const, description: "Date of analysis (YYYY-MM-DD)" },
+      overall_progress: {
+        type: "number" as const,
+        description: "Overall completion 0-100, or omit if unknown",
+      },
+      confidence: {
+        type: "string" as const,
+        enum: ["low", "medium", "high"],
+        description: "Confidence in the analysis",
+      },
+      image_coverage_note: {
+        type: "string" as const,
+        description:
+          "Describe how many images were provided, what scopes they cover, and flag any scopes that are missing or unconfirmable.",
+      },
+      rendering_relation_note: {
+        type: "string" as const,
+        description:
+          "Optional: If any provided image appears to be an architectural rendering/drawing (e.g., plan, elevation, sheet, BIM/detail drawing), compare the photos against that design intent and state alignment vs uncertainty, referencing the specific provided images by position or description. Omit if no rendering/drawing is present.",
+      },
+      summary: {
+        type: "string" as const,
+        description:
+          "2-5 sentence narrative summarizing the site condition, what the photos show, and the main billing recommendations (current vs suggested progress, key items to advance or verify).",
+      },
+      sections: {
+        type: "array" as const,
+        description: "Billing sections with rows",
+        items: {
+          type: "object" as const,
+          properties: {
+            id: { type: "string" as const },
+            title: { type: "string" as const },
+            rows: {
+              type: "array" as const,
+              items: {
+                type: "object" as const,
+                properties: {
+                  line_item: { type: "string" as const },
+                  current_percent: { type: "string" as const },
+                  suggested_percent: { type: "string" as const },
+                  suggested_percent_range: { type: "string" as const },
+                  status: {
+                    type: "string" as const,
+                    enum: ["advance", "hold", "verify", "ok"],
+                  },
+                  photo_supported: {
+                    type: "string" as const,
+                    enum: ["yes", "no", "partial", "unclear"],
+                  },
+                  notes: { type: "string" as const },
+                },
+                required: [
+                  "line_item",
+                  "current_percent",
+                  "suggested_percent",
+                  "suggested_percent_range",
+                  "status",
+                  "photo_supported",
+                  "notes",
+                ],
+              },
+            },
+          },
+          required: ["id", "title", "rows"],
+        },
+      },
+      key_actions: {
+        type: "array" as const,
+        items: {
+          type: "object" as const,
+          properties: {
+            priority: {
+              type: "string" as const,
+              enum: ["immediate", "this_week", "verify", "next_cycle"],
+            },
+            label: { type: "string" as const },
+            action: { type: "string" as const },
+          },
+          required: ["priority", "label", "action"],
+        },
+      },
+    },
+    required: ["project", "as_of_date", "confidence", "image_coverage_note", "summary", "sections", "key_actions"],
+  },
+};
+
+function truncate(s: string, max: number): string {
+  const t = typeof s === "string" ? s.trim() : "";
+  if (t.length <= max) return t;
+  return t.slice(0, max);
+}
 
 function normalizePercent(value: unknown): string {
   if (typeof value === "number") {
@@ -84,84 +223,77 @@ function normalizePriority(value: unknown): KeyAction["priority"] {
   return "this_week";
 }
 
+function normalizeConfidence(value: unknown): string {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  return "unknown";
+}
+
+function normalizePhotoSupported(value: unknown): PhotoSupported {
+  if (value === "yes" || value === "no" || value === "partial" || value === "unclear") return value;
+  return "unclear";
+}
+
 function makeId(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function readBalancedJSONObject(input: string): string | null {
-  let start = -1;
-  let depth = 0;
-  let inString = false;
-  let escaping = false;
-  let best: string | null = null;
-
-  for (let i = 0; i < input.length; i += 1) {
-    const ch = input[i];
-    if (inString) {
-      if (escaping) {
-        escaping = false;
-      } else if (ch === "\\") {
-        escaping = true;
-      } else if (ch === "\"") {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (ch === "\"") {
-      inString = true;
-      continue;
-    }
-    if (ch === "{") {
-      if (depth === 0) start = i;
-      depth += 1;
-      continue;
-    }
-    if (ch === "}") {
-      if (depth > 0) depth -= 1;
-      if (depth === 0 && start !== -1) {
-        best = input.slice(start, i + 1);
-      }
-    }
-  }
-
-  return best;
-}
-
-function parseModelJson(textContent: string): unknown {
-  const cleaned = textContent.replace(/```json|```/g, "").trim();
-  const attempts: string[] = [];
-  attempts.push(cleaned);
-
-  const firstBrace = cleaned.indexOf("{");
-  const lastBrace = cleaned.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    attempts.push(cleaned.slice(firstBrace, lastBrace + 1));
-  }
-
-  const balanced = readBalancedJSONObject(cleaned);
-  if (balanced) attempts.push(balanced);
-
-  let lastError: unknown = null;
-  for (const candidate of attempts) {
-    try {
-      return JSON.parse(candidate);
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  throw lastError ?? new Error("Unable to parse model JSON.");
-}
-
-function normalizeResponse(parsed: unknown): ReconciliationResponse {
-  const fallback: ReconciliationResponse = {
-    project: "Site Analysis",
-    as_of_date: new Date().toISOString().split("T")[0],
+/** Build a safe fallback response for UI to render when analysis fails. */
+export function getFallbackResponse(projectName: string): ReconciliationResponse {
+  const today = new Date().toISOString().split("T")[0];
+  return {
+    project: projectName,
+    as_of_date: today,
     overall_progress: null,
     confidence: "unknown",
-    sections: [],
-    key_actions: [],
+    image_coverage_note:
+      "Image coverage could not be determined. Provide additional photos covering all major scopes.",
+    summary:
+      "Analysis could not be completed. Provide additional photos or PM notes and try again.",
+    sections: SECTION_TEMPLATES.map((t) => ({
+      id: t.id,
+      title: t.title,
+      rows: [
+        {
+          line_item: "No clear billable evidence from current image set",
+          current_percent: "0%",
+          suggested_percent: "0%",
+          suggested_percent_range: "0%",
+          status: "verify" as RecoStatus,
+          photo_supported: "unclear" as PhotoSupported,
+          notes:
+            "Provide additional dated photos or PM notes to improve confidence for this section.",
+        },
+      ],
+    })),
+    key_actions: [
+      {
+        priority: "verify",
+        label: "Confirm dated photo coverage",
+        action:
+          "Ensure each major scope has at least one recent, clear image before weekly billing reconciliation.",
+      },
+      {
+        priority: "this_week",
+        label: "Cross-check partially billed items",
+        action:
+          "Prioritize partially billed line items first and only advance when visible completion is clear.",
+      },
+      {
+        priority: "next_cycle",
+        label: "Capture prerequisite milestones",
+        action:
+          "Collect photos that prove prerequisite stages are complete before billing finish trades.",
+      },
+    ],
   };
+}
+
+/**
+ * Normalize and validate tool/parsed input into ReconciliationResponse.
+ * Applies bounds, enum coercion, and string truncation.
+ */
+export function normalizeResponse(parsed: unknown): ReconciliationResponse {
+  const fallback = getFallbackResponse("Site Analysis");
 
   if (!parsed || typeof parsed !== "object") {
     return fallback;
@@ -169,8 +301,14 @@ function normalizeResponse(parsed: unknown): ReconciliationResponse {
 
   const obj = parsed as Record<string, unknown>;
 
-  const project = typeof obj.project === "string" ? obj.project : fallback.project;
-  const asOf = typeof obj.as_of_date === "string" ? obj.as_of_date : fallback.as_of_date;
+  const project = truncate(
+    typeof obj.project === "string" ? obj.project : fallback.project,
+    MAX_STRING_LENGTH
+  ) || fallback.project;
+  const asOf =
+    typeof obj.as_of_date === "string"
+      ? truncate(obj.as_of_date, 32)
+      : new Date().toISOString().split("T")[0];
 
   const overall =
     typeof obj.overall_progress === "number"
@@ -179,82 +317,106 @@ function normalizeResponse(parsed: unknown): ReconciliationResponse {
         ? Number.parseInt(obj.overall_progress, 10) || null
         : null;
 
-  const confidence =
-    typeof obj.confidence === "string"
-      ? obj.confidence
-      : fallback.confidence;
+  const confidence = normalizeConfidence(obj.confidence);
 
-  const rawSections = Array.isArray(obj.sections) ? obj.sections : [];
+  const image_coverage_note =
+    typeof obj.image_coverage_note === "string" && obj.image_coverage_note.trim()
+      ? truncate(obj.image_coverage_note.trim(), MAX_STRING_LENGTH)
+      : undefined;
+
+  const summary =
+    typeof obj.summary === "string" && obj.summary.trim()
+      ? truncate(obj.summary.trim(), MAX_STRING_LENGTH)
+      : undefined;
+
+  const rendering_relation_note =
+    typeof obj.rendering_relation_note === "string" && obj.rendering_relation_note.trim()
+      ? truncate(obj.rendering_relation_note.trim(), MAX_STRING_LENGTH)
+      : undefined;
+
+  const rawSections = Array.isArray(obj.sections) ? obj.sections.slice(0, MAX_SECTIONS) : [];
   const sections: RecoSection[] = rawSections
     .map((s) => {
       if (!s || typeof s !== "object") return null;
       const so = s as Record<string, unknown>;
-      const id = typeof so.id === "string" ? so.id : "";
-      const title = typeof so.title === "string" ? so.title : id || "Section";
-      const rawRows = Array.isArray(so.rows) ? so.rows : [];
+      const id = typeof so.id === "string" ? truncate(so.id, 64) : "";
+      const title =
+        typeof so.title === "string" ? truncate(so.title, 128) : id || "Section";
+      const rawRows = Array.isArray(so.rows) ? so.rows.slice(0, MAX_ROWS_PER_SECTION) : [];
       const rows: RecoRow[] = rawRows
         .map((r) => {
           if (!r || typeof r !== "object") return null;
           const ro = r as Record<string, unknown>;
-          const line_item = typeof ro.line_item === "string" ? ro.line_item : "";
+          const line_item =
+            typeof ro.line_item === "string" ? truncate(ro.line_item, MAX_STRING_LENGTH) : "";
           const current_percent = normalizePercent(ro.current_percent);
           const suggested_percent = normalizePercent(ro.suggested_percent);
+          const suggested_percent_range = normalizePercent(
+            typeof ro.suggested_percent_range === "string" && ro.suggested_percent_range.trim()
+              ? ro.suggested_percent_range
+              : suggested_percent
+          );
           const status =
             ro.status === "advance" ||
             ro.status === "hold" ||
             ro.status === "verify" ||
             ro.status === "ok"
               ? (ro.status as RecoStatus)
-              : "hold";
-          const notes = typeof ro.notes === "string" ? ro.notes : "";
+              : "verify";
+          const photo_supported = normalizePhotoSupported(ro.photo_supported);
+          const notes =
+            typeof ro.notes === "string" ? truncate(ro.notes, MAX_STRING_LENGTH) : "";
           if (!line_item) return null;
-          return { line_item, current_percent, suggested_percent, status, notes };
+          return {
+            line_item,
+            current_percent,
+            suggested_percent,
+            suggested_percent_range,
+            status,
+            photo_supported,
+            notes,
+          };
         })
         .filter(Boolean) as RecoRow[];
       if (!rows.length) return null;
-      return { id: id || title.toLowerCase().replace(/\s+/g, "_"), title, rows };
+      return { id: id || makeId(title), title, rows };
     })
     .filter(Boolean) as RecoSection[];
 
-  const rawActions = Array.isArray(obj.key_actions) ? obj.key_actions : [];
+  const rawActions = Array.isArray(obj.key_actions)
+    ? obj.key_actions.slice(0, MAX_KEY_ACTIONS)
+    : [];
   const key_actions: KeyAction[] = rawActions
     .map((a) => {
       if (!a || typeof a !== "object") return null;
       const ao = a as Record<string, unknown>;
-      const label = typeof ao.label === "string" ? ao.label : "";
-      const action = typeof ao.action === "string" ? ao.action : label;
+      const label =
+        typeof ao.label === "string" ? truncate(ao.label, MAX_STRING_LENGTH) : "";
+      const action =
+        typeof ao.action === "string" ? truncate(ao.action, MAX_STRING_LENGTH) : label;
       const priority = normalizePriority(ao.priority);
       if (!label && !action) return null;
       return { priority, label: label || action, action: action || label };
     })
     .filter(Boolean) as KeyAction[];
 
-  const templateSections: RecoSection[] = SECTION_TEMPLATES.map((template) => {
-    const found = sections.find(
-      (s) =>
-        s.id === template.id ||
-        makeId(s.title) === template.id ||
-        template.id.includes(makeId(s.title)) ||
-        makeId(s.title).includes(template.id)
-    );
-    if (found) {
-      return { ...found, id: template.id, title: template.title };
-    }
-    return {
-      id: template.id,
-      title: template.title,
-      rows: [
-        {
-          line_item: "No clear billable evidence from current image set",
-          current_percent: "0%",
-          suggested_percent: "0%",
-          status: "verify",
-          notes:
-            "Provide additional dated photos or PM notes to improve confidence for this section.",
-        },
-      ],
-    };
-  });
+  // If the model produced no sections at all, fall back to generic template sections.
+  // Otherwise, only include sections that the model actually returned; do NOT fabricate
+  // extra "no clear billable evidence" rows, since those are not helpful to the user.
+  const templateSections: RecoSection[] =
+    sections.length === 0
+      ? fallback.sections
+      : SECTION_TEMPLATES.map((template) => {
+          const found = sections.find(
+            (s) =>
+              s.id === template.id ||
+              makeId(s.title) === template.id ||
+              template.id.includes(makeId(s.title)) ||
+              makeId(s.title).includes(template.id)
+          );
+          if (!found) return null;
+          return { ...found, id: template.id, title: template.title };
+        }).filter(Boolean) as RecoSection[];
 
   const normalizedActions = [...key_actions];
   if (normalizedActions.length < 3) {
@@ -289,31 +451,277 @@ function normalizeResponse(parsed: unknown): ReconciliationResponse {
     as_of_date: asOf,
     overall_progress: overall,
     confidence,
+    image_coverage_note,
+    rendering_relation_note,
+    summary,
     sections: templateSections,
     key_actions: normalizedActions,
   };
 }
 
+type ContentBlock = { type: string; text?: string; name?: string; input?: unknown };
+
+/** Extract the first tool_use block's input for the given tool name. */
+function extractToolInput(
+  content: unknown[] | undefined,
+  toolName: string
+): Record<string, unknown> | null {
+  if (!Array.isArray(content)) return null;
+  for (const block of content) {
+    const b = block as ContentBlock;
+    if (b.type === "tool_use" && b.name === toolName && b.input != null && typeof b.input === "object") {
+      return b.input as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+const MODEL = "claude-haiku-4-5-20251001";
+const RETRY_PROMPT_SUFFIX_TOOL_MISSING =
+  "\n\nIMPORTANT: You must respond by calling the reconcile_billing tool with your analysis. Do not respond with plain text or JSON in the message body.";
+const RETRY_PROMPT_SUFFIX_INCOMPLETE =
+  "\n\nIMPORTANT: Your previous response called the tool but omitted required fields. You MUST call reconcile_billing again with a COMPLETE object including ALL required top-level fields (project, as_of_date, confidence, image_coverage_note, summary, sections, key_actions). Each row MUST include: line_item, current_percent, suggested_percent, suggested_percent_range, status, photo_supported, and notes. Include at least three key_actions.";
+
+/** Tool output is valid for display only if it has non-empty sections and key_actions. */
+function isToolInputComplete(input: Record<string, unknown>): boolean {
+  const sections = input.sections;
+  const keyActions = input.key_actions;
+  if (!Array.isArray(sections) || sections.length === 0) return false;
+  if (!Array.isArray(keyActions) || keyActions.length === 0) return false;
+
+  for (const section of sections) {
+    if (!section || typeof section !== "object") return false;
+    const s = section as Record<string, unknown>;
+    if (!Array.isArray(s.rows) || s.rows.length === 0) return false;
+    for (const row of s.rows as unknown[]) {
+      if (!row || typeof row !== "object") return false;
+      const r = row as Record<string, unknown>;
+      const required = [
+        "line_item",
+        "current_percent",
+        "suggested_percent",
+        "suggested_percent_range",
+        "status",
+        "photo_supported",
+        "notes",
+      ];
+      for (const k of required) {
+        if (typeof r[k] !== "string" || !(r[k] as string).trim()) return false;
+      }
+    }
+  }
+
+  const topRequired = ["project", "as_of_date", "confidence", "image_coverage_note", "summary"];
+  for (const k of topRequired) {
+    if (typeof input[k] !== "string" || !(input[k] as string).trim()) return false;
+  }
+  return true;
+}
+
+function buildPrompt(opts: {
+  projectName: string;
+  today: string;
+  pmUpdate: string;
+  lineItemLabels: string[];
+  isRetry?: boolean;
+  retryReason?: "tool_missing" | "incomplete";
+}): string {
+  const { pmUpdate, isRetry, retryReason } = opts;
+  return `
+You are a senior pool construction billing analyst. Your output will be used to update progress billing for contract line items. Provide full, detailed analysis so the project manager can justify each billing change.
+
+Using the site photos and (if provided) the PM update text, produce a billing reconciliation by calling the reconcile_billing tool.
+
+---
+
+STEP 1 — IMAGE ANALYSIS (internal reasoning)
+
+Before producing any billing output, carefully examine every provided photo. For each image:
+- First determine the image type:
+  - Construction progress photo (field/site capture)
+  - Architectural rendering/drawing (e.g., elevation, plan sheet, detail drawing, BIM sheet)
+- If it is a rendering/drawing, treat it as "design intent" context only (do not infer completion without photo evidence).
+- Identify what scope of work is visible (e.g., excavation, shell, plumbing, decking, tile, equipment).
+- Note the completion state: not started / in progress (estimate %) / substantially complete / fully complete.
+- If a rendering/drawing is present, note the specific design intent for the relevant scopes (what the drawings expect to be true visually).
+- Flag any image quality issues: blurry, poor lighting, wrong angle, too far away, or scope not visible.
+- Note what is NOT visible or cannot be confirmed from the images.
+
+Do not assume work is complete if it is not clearly visible. If a scope is partially visible, note what portion can be confirmed.
+
+---
+
+STEP 2 — BILLING RECONCILIATION
+
+Call the reconcile_billing tool with the full object. All required billing fields are required; rendering_relation_note is optional (omit if no rendering/drawing is present).
+
+Tool call schema:
+{
+  project: string,
+  as_of_date: string (YYYY-MM-DD),
+  confidence: "high" | "medium" | "low",
+  image_coverage_note: string,
+  rendering_relation_note?: string,
+  summary: string,
+  sections: [
+    {
+      id: string,
+      title: string,
+      rows: [
+        {
+          line_item: string,
+          current_percent: string,
+          suggested_percent: string,
+          suggested_percent_range: string,
+          status: "advance" | "hold" | "verify" | "ok",
+          photo_supported: "yes" | "no" | "partial" | "unclear",
+          notes: string
+        }
+      ]
+    }
+  ],
+  key_actions: [
+    {
+      priority: "immediate" | "this_week" | "verify" | "next_cycle",
+      label: string,
+      action: string
+    }
+  ]
+}
+
+---
+
+FIELD DEFINITIONS
+
+image_coverage_note: Describe how many images were provided, what scopes they cover, and flag any scopes that are missing or unconfirmable.
+
+rendering_relation_note: Optional 2–5 sentences. Only if at least one provided image appears to be an architectural rendering/drawing: compare field photo progress vs the rendering's design intent, and explicitly state where they align and where matching is uncertain. Reference the provided images by position or description (e.g., "Image 1", "third drawing sheet", etc.). If no rendering/drawing is present, omit the field.
+
+summary: 2–5 sentences describing what the photos show overall, current vs. suggested progress, and the main billing recommendations.
+
+suggested_percent: A single recommended billing value (e.g., "75%") — not a range.
+
+suggested_percent_range: If uncertainty exists, provide a range here (e.g., "70–80%"). Otherwise use the same value as suggested_percent.
+
+photo_supported: "yes" = clearly visible in photos | "partial" = some evidence visible | "no" = not visible in photos | "unclear" = ambiguous.
+
+status: "advance" = recommend increasing % | "hold" = do not increase, evidence missing or contradictory | "verify" = needs site visit or more photos | "ok" = current % is appropriate.
+
+key_actions: Minimum three entries. Each must have a specific, actionable label and action. Priority: "immediate" | "this_week" | "verify" | "next_cycle".
+
+---
+
+NOTES FIELD REQUIREMENTS
+
+Each row's notes field must:
+1. State whether this line item is directly supported by the photos (yes / partial / no / unclear).
+2. Reference specific images by position or description (e.g., "Image 1 shows...", "Third photo shows...").
+3. Describe what specific visual evidence supports or contradicts the suggested percentage.
+4. If the scope is not visible in any image, explicitly state: "This scope is not visible in the provided images. Percentage based on [PM update / construction sequence logic / prior billing — specify which]."
+5. Explain why the suggested_percent is appropriate given the evidence — not just what was seen.
+6. If holding or downgrading a percentage, explain what evidence is missing or contradictory.
+
+Do NOT write generic notes like "work appears to be in progress." Every note must be specific and defensible for billing purposes.
+
+---
+
+CONSTRUCTION SEQUENCING RULES
+
+Do not bill a later phase before earlier phases are substantially complete. Enforce this order:
+
+1. Excavation
+2. Steel / rebar
+3. Shell / gunite / shotcrete
+4. Rough plumbing & electrical
+5. Equipment pad / equipment set
+6. Waterline tile & coping
+7. Decking / concrete flatwork
+8. Interior finish / plaster
+9. Startup / fill / chemical balance
+
+If images show a later phase, you may infer earlier phases are complete — but explicitly note this inference in the notes field.
+
+---
+
+CONFIDENCE RULES
+
+Set confidence based on how well the photos cover the billable scopes:
+- "high": Photos clearly show the relevant scope for most line items.
+- "medium": 1–2 key scopes are unclear, partially visible, or not shown.
+- "low": Photos are limited, blurry, or cover only a small portion of the work.
+
+---
+
+WHEN NO CONTRACT LINE ITEMS ARE PROVIDED
+
+Still produce a full analysis. Create sections and rows for every scope of work visible in the photos (shell, plumbing, electrical, decking, tile, equipment, etc.). Apply the sequencing rules to infer what is likely complete even if not directly visible, and flag all inferences explicitly in the notes.
+
+---
+
+PM UPDATE (optional):
+${pmUpdate || "<none provided>"}
+${isRetry && retryReason === "incomplete" ? RETRY_PROMPT_SUFFIX_INCOMPLETE : isRetry ? RETRY_PROMPT_SUFFIX_TOOL_MISSING : ""}
+`.trim();
+}
+
 export async function POST(request: Request) {
+  const requestId =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `req_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  const startMs = Date.now();
+
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
+      const fallback = getFallbackResponse("Site Analysis");
       return new Response(
-        JSON.stringify({ error: "ANTHROPIC_API_KEY is not set on the server." }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        JSON.stringify({
+          ...fallback,
+          meta: {
+            ok: false,
+            requestId,
+            elapsedMs: Date.now() - startMs,
+            model: MODEL,
+            errorCode: "anthropic_api_error" as const,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
       );
     }
 
     const body = (await request.json()) as AnalyzeRequest;
-    const images = body.images ?? [];
+    const rawImages = body.images ?? [];
     const pmUpdate = body.pmUpdate ?? "";
     const projectName = body.projectName ?? "Site Analysis";
+    const lineItemLabels = Array.isArray(body.lineItemLabels)
+      ? body.lineItemLabels
+          .slice(0, MAX_LINE_ITEM_LABELS)
+          .filter((l) => typeof l === "string" && l.trim())
+          .map((l) =>
+            l.length > MAX_LINE_ITEM_LABEL_LENGTH
+              ? l.slice(0, MAX_LINE_ITEM_LABEL_LENGTH - 3).trim() + "..."
+              : l
+          )
+      : [];
 
-    if (!Array.isArray(images) || images.length === 0) {
+    if (!Array.isArray(rawImages) || rawImages.length === 0) {
       return new Response(JSON.stringify({ error: "No images provided." }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    const images = rawImages.slice(0, MAX_IMAGES);
+    if (rawImages.length > MAX_IMAGES) {
+      console.warn(
+        JSON.stringify({
+          event: "analyze_images_capped",
+          requestId,
+          requested: rawImages.length,
+          capped: MAX_IMAGES,
+        })
+      );
     }
 
     const imgsForClaude = images.map((img) => ({
@@ -327,117 +735,283 @@ export async function POST(request: Request) {
 
     const today = new Date().toISOString().split("T")[0];
 
-    const prompt = `
-You are a senior pool construction billing analyst.
+    const promptForAttempt = (isRetry: boolean, retryReason?: "tool_missing" | "incomplete") =>
+      buildPrompt({ projectName, today, pmUpdate, lineItemLabels, isRetry, retryReason });
 
-Using the site photos and (if provided) the PM update text, produce a billing reconciliation JSON object.
+    // Log what we send to the AI (no base64 — images omitted from log)
+    console.log(
+      JSON.stringify({
+        event: "analyze_request",
+        requestId,
+        imageCount: images.length,
+        projectName,
+        pmUpdateLength: pmUpdate.length,
+        lineItemLabels,
+        prompt: promptForAttempt(false),
+      })
+    );
 
-Keep construction logic in mind:
-- Do not bill finishes before prerequisites (e.g., plaster after tile, tile after shell, etc.).
-- Suggest advancing partially billed items when work is clearly complete.
-- Mark uncertain or possibly overbilled items as "verify" with a short note.
+    let toolInput: Record<string, unknown> | null = null;
+    let lastContent: unknown = null;
+    let anthropicOk = true;
+    let lastRes: Response | null = null;
+    let retryReason: "tool_missing" | "incomplete" = "tool_missing";
 
-Return JSON in this shape and nothing else (no markdown, no prose):
-{
-  "project": "${projectName}",
-  "as_of_date": "${today}",
-  "overall_progress": 0,
-  "confidence": "low|medium|high",
-  "sections": [
-    {
-      "id": "pool_spa",
-      "title": "POOL & SPA",
-      "rows": [
-        {
-          "line_item": "Shotcrete Per Cubic Yard",
-          "current_percent": "50%",
-          "suggested_percent": "100%",
-          "status": "advance",
-          "notes": "Shell fully formed and cured in photos."
-        }
-      ]
-    }
-  ],
-  "key_actions": [
-    {
-      "priority": "immediate",
-      "label": "Advance shotcrete to 100%",
-      "action": "Shell is complete; safe to bill to 100% pending on-site confirmation."
-    }
-  ]
-}
-
-Status must be one of: "advance", "hold", "verify", "ok".
-Percentages should be concise strings like "0%", "50%", "75–100%".
-Group related items into a small number of clear sections (POOL & SPA, WALLS/VENEER, OUTDOOR KITCHEN, CONCRETE, LANDSCAPE/IRRIGATION, UTILITIES) when applicable.
-Always return at least one section with several rows and at least three key_actions, even if the PM update is empty.
-
-PM UPDATE (optional, may be empty):
-${pmUpdate || "<none provided>"}
-`.trim();
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1400,
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const payload = {
+        model: MODEL,
+        max_tokens: 4096,
         temperature: 0,
+        tools: [RECONCILE_BILLING_TOOL],
+        tool_choice: { type: "tool" as const, name: RECONCILE_BILLING_TOOL_NAME },
         messages: [
           {
-            role: "user",
-            content: [...imgsForClaude, { type: "text", text: prompt }],
+            role: "user" as const,
+            content: [
+              ...imgsForClaude,
+              {
+                type: "text" as const,
+                text: promptForAttempt(attempt === 1, retryReason),
+              },
+            ],
           },
         ],
-      }),
-    });
+      };
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("Anthropic error:", errText);
-      return new Response(
-        JSON.stringify({ error: "Anthropic API error", details: errText }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(payload),
+      });
+      lastRes = res;
+
+      if (!res.ok) {
+        anthropicOk = false;
+        const errText = await res.text();
+        console.error("Anthropic error:", errText);
+        try {
+          const errJson = JSON.parse(errText) as { error?: { type?: string }; type?: string };
+          const rateLimit =
+            errJson?.error?.type === "rate_limit_error" || errJson?.type === "rate_limit_error";
+          if (rateLimit) {
+            lastContent = { rateLimit: true, raw: errText };
+          }
+        } catch {
+          // ignore parse failure
+        }
+        break;
+      }
+
+      const data = (await res.json()) as {
+        content?: Array<{ type: string; text?: string; name?: string; input?: unknown }>;
+      };
+      lastContent = data.content ?? null;
+      const nextInput = extractToolInput(data.content ?? [], RECONCILE_BILLING_TOOL_NAME);
+      if (nextInput != null) {
+        toolInput = nextInput;
+        if (!isToolInputComplete(nextInput) && attempt === 0) {
+          retryReason = "incomplete";
+        }
+      }
+      if (toolInput != null && isToolInputComplete(toolInput)) break;
     }
 
-    const data = (await res.json()) as { content?: Array<{ text?: string }> };
+    const elapsedMs = Date.now() - startMs;
 
-    const textContent = (data.content ?? [])
-      .map((c) => c.text ?? "")
-      .join("")
-      .trim();
-
-    let parsed: unknown;
-    try {
-      parsed = parseModelJson(textContent);
-    } catch (e) {
-      console.error("JSON parse error:", e);
+    if (!anthropicOk || lastRes?.ok === false) {
+      const fallback = getFallbackResponse(projectName);
+      const isRateLimit =
+        lastContent != null &&
+        typeof lastContent === "object" &&
+        "rateLimit" in (lastContent as Record<string, unknown>) &&
+        (lastContent as Record<string, unknown>).rateLimit === true;
+      const meta: AnalyzeMeta = {
+        ok: false,
+        requestId,
+        elapsedMs,
+        model: MODEL,
+        errorCode: isRateLimit ? "rate_limit" : "anthropic_api_error",
+      };
+      if (process.env.NODE_ENV !== "production" && lastContent != null) {
+        meta.rawContent = lastContent;
+      }
+      console.error(
+        JSON.stringify({
+          event: "analyze_failed",
+          errorCode: meta.errorCode,
+          requestId,
+          elapsedMs,
+          model: MODEL,
+          imageCount: images.length,
+          hasPmUpdate: Boolean(pmUpdate?.trim()),
+        })
+      );
       return new Response(
         JSON.stringify({
-          error: "Failed to parse JSON from model.",
+          ...fallback,
+          meta,
+          ...(isRateLimit && {
+            error: "Rate limit exceeded",
+            details:
+              "Too many input tokens. Use fewer photos (up to 10) or try again in a minute.",
+          }),
         }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        { status: 200, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    const normalized = normalizeResponse(parsed);
+    if (toolInput == null) {
+      const fallback = getFallbackResponse(projectName);
+      const meta: AnalyzeMeta = {
+        ok: false,
+        requestId,
+        elapsedMs,
+        model: MODEL,
+        errorCode: "tool_missing",
+      };
+      if (process.env.NODE_ENV !== "production" && lastContent != null) {
+        meta.rawContent = lastContent;
+      }
+      console.error(
+        JSON.stringify({
+          event: "analyze_failed",
+          errorCode: meta.errorCode,
+          requestId,
+          elapsedMs,
+          model: MODEL,
+          imageCount: images.length,
+          hasPmUpdate: Boolean(pmUpdate?.trim()),
+        })
+      );
+      console.log(
+        JSON.stringify({
+          event: "analyze_response",
+          requestId,
+          status: "tool_missing",
+          rawContent: lastContent,
+        })
+      );
+      return new Response(
+        JSON.stringify({ ...fallback, meta }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
-    return new Response(JSON.stringify(normalized), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    if (!isToolInputComplete(toolInput)) {
+      const fallback = getFallbackResponse(projectName);
+      const meta: AnalyzeMeta = {
+        ok: false,
+        requestId,
+        elapsedMs,
+        model: MODEL,
+        errorCode: "tool_incomplete",
+      };
+      if (process.env.NODE_ENV !== "production") {
+        meta.rawContent = toolInput;
+      }
+      console.error(
+        JSON.stringify({
+          event: "analyze_failed",
+          errorCode: meta.errorCode,
+          requestId,
+          elapsedMs,
+          model: MODEL,
+          imageCount: images.length,
+          hasPmUpdate: Boolean(pmUpdate?.trim()),
+        })
+      );
+      return new Response(
+        JSON.stringify({ ...fallback, meta }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Log raw AI tool output for debugging
+    console.log(
+      JSON.stringify({
+        event: "analyze_response",
+        requestId,
+        status: "ok",
+        rawToolInput: toolInput,
+      })
+    );
+
+    let normalized: ReconciliationResponse;
+    try {
+      normalized = normalizeResponse(toolInput);
+    } catch (e) {
+      const fallback = getFallbackResponse(projectName);
+      const meta: AnalyzeMeta = {
+        ok: false,
+        requestId,
+        elapsedMs,
+        model: MODEL,
+        errorCode: "validation_failed",
+      };
+      if (process.env.NODE_ENV !== "production") {
+        meta.rawContent = toolInput;
+      }
+      console.error(
+        JSON.stringify({
+          event: "analyze_failed",
+          errorCode: meta.errorCode,
+          requestId,
+          elapsedMs,
+          model: MODEL,
+          imageCount: images.length,
+          hasPmUpdate: Boolean(pmUpdate?.trim()),
+        })
+      );
+      return new Response(
+        JSON.stringify({ ...fallback, meta }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        ...normalized,
+        meta: {
+          ok: true,
+          requestId,
+          elapsedMs,
+          model: MODEL,
+        } satisfies AnalyzeMeta,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
   } catch (e) {
     const error = e as Error;
+    const elapsedMs = Date.now() - startMs;
     console.error("Server error:", error);
+    console.error(
+      JSON.stringify({
+        event: "analyze_failed",
+        errorCode: "server_error",
+        requestId,
+        elapsedMs,
+        model: MODEL,
+      })
+    );
+    const fallback = getFallbackResponse("Site Analysis");
     return new Response(
-      JSON.stringify({ error: "Server error", details: error.message }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      JSON.stringify({
+        ...fallback,
+        meta: {
+          ok: false,
+          requestId,
+          elapsedMs,
+          model: MODEL,
+          errorCode: "server_error",
+        } satisfies AnalyzeMeta,
+        error: "Server error",
+        details: error.message,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
     );
   }
 }
-

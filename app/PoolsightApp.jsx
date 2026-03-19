@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import TrelloDashboard from "../components/TrelloDashboard";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────
 const NAV = [
-  { id: "present", label: "Presentation", icon: "🎯" },
+  { id: "welcome", label: "Welcome", icon: "🏊" },
   { id: "plan", label: "Project Plan", icon: "📋" },
   { id: "demo", label: "Live Demo", icon: "🎬" },
+  { id: "trello", label: "Trello", icon: "🗂️" },
   { id: "cost", label: "Cost Calculator", icon: "💰" },
 ];
 
@@ -19,17 +21,9 @@ const pLabel = {
   nice: "Nice to Have",
 };
 
-const statusLabel = {
-  complete: "Complete",
-  in_progress: "In Progress",
-  pending: "Pending",
-};
-
-const statusDot = {
-  complete: "bg-emerald-500",
-  in_progress: "bg-blue-600",
-  pending: "bg-slate-400",
-};
+// Force a direct reference so eslint counts `motion` as used even
+// when it's only referenced inside JSX member expressions (<motion.div />).
+const MotionDiv = motion.div;
 
 const PM_UPDATE_SUGGESTIONS = [
   { id: "tile_pickup", label: "Tile ready", text: "Tile is ready for pickup and installation is expected this week." },
@@ -42,155 +36,398 @@ const PM_UPDATE_SUGGESTIONS = [
 const SLIDES = [
   {
     id: 1,
-    section: "Introduction",
-    title: "PoolSight AI",
-    subtitle:
-      "Transforming Pool Construction Operations with AI",
+    section: "Cover",
+    title: "AI-Assisted Permitting Strategy Report",
+    subtitle: "Presentation 2",
     type: "cover",
     bullets: [],
-    note: "PoolSight AI automates the most time-consuming part of construction management — tracking progress and triggering billing — using photos your field team is already taking every day.",
+    note:
+      "Prepared for Jesse at Calimingo Pools. This presentation recommends the most practical AI strategy for streamlining permitting: augment the engineering team with tools and a lightweight internal system, rather than pursuing full automation.",
   },
   {
     id: 2,
-    section: "The Problem",
-    title: "The Problem We're Solving",
-    subtitle: "Manual processes are creating real business risk",
+    section: "Executive Summary",
+    title: "The Best Strategy Is Augmentation",
+    subtitle: "Build tools around the team, not around the fantasy of full automation",
     type: "bullets",
     bullets: [
       {
-        icon: "⏱️",
-        head: "Reporting takes hours",
-        body: "PMs manually review site photos, write progress reports, and update billing records — for every project, every week.",
+        icon: "⚡",
+        head: "Highest return, lowest risk",
+        body: "The most effective approach is to equip the existing engineering team with AI tools and a lightweight internal project management system.",
       },
       {
-        icon: "💸",
-        head: "Billing delays & errors",
-        body: "Milestone billing relies on human memory and judgment. Missed triggers mean delayed revenue.",
+        icon: "🗓️",
+        head: "Operational in weeks",
+        body: "This path can be delivered in weeks rather than months or years, and it starts producing value immediately.",
       },
       {
-        icon: "👁️",
-        head: "No real-time visibility",
-        body: "Executives have no single view across all active projects.",
+        icon: "🧠",
+        head: "Humans stay in the loop",
+        body: "AI should speed up analysis, drafting, and organization, but licensed engineers still make the final calls.",
       },
       {
-        icon: "📂",
-        head: "Scattered data",
-        body: "Photos in Trello, notes in email, billing in spreadsheets. No connected system of record for construction progress.",
-      },
-      {
-        icon: "🔍",
-        head: "Details the human eye can miss",
-        body: "When reviewing dozens of photos, it's easy to overlook partial completion, regressions, or subtle safety and quality cues. AI can flag inconsistencies and compare shot-to-shot so nothing slips through.",
-      },
-      {
-        icon: "📐",
-        head: "No consistent standard across reviewers",
-        body: "Different PMs apply different judgment on what counts as 'complete' or 'billable.' AI applies the same criteria every time, so progress and billing recommendations stay consistent across projects and teams.",
+        icon: "🛠️",
+        head: "Internal system wins",
+        body: "A simple intake, tracking, prompt, and document hub becomes the durable operating advantage.",
       },
     ],
-    note: "These aren't minor inefficiencies — they compound across every project and create revenue leakage, client disputes, and PM burnout.",
+    note:
+      "The core conclusion is straightforward: full automation is not the right bet right now, but AI-assisted workflows are immediately useful and economically sensible.",
   },
-  { id:3, section:"The Solution", title:"What PoolSight AI Does", subtitle:"One platform. Photos in. Insights and billing out.", type:"bullets",
-    bullets:[
-      { icon:"📸", head:"Upload or sync site photos", body:"Field teams upload via drag & drop or continue using Trello as-is. No new workflow required." },
-      { icon:"🤖", head:"AI analyzes construction phases", body:"Claude Haiku 3.5 inspects each image, identifies completed phases, and generates a structured report." },
-      { icon:"📊", head:"Progress tracked over time", body:"Each submission is compared to prior history. The AI flags what advanced, what's blocked, and what's at risk." },
-      { icon:"💰", head:"Billing milestones surfaced automatically", body:"When a phase hits completion, the system flags it for PM approval — one click to trigger the invoice." },
+  {
+    id: 3,
+    section: "The Problem",
+    title: "What We Set Out to Solve",
+    subtitle: "Can AI streamline permitting from sketch to submittal?",
+    type: "bullets",
+    bullets: [
+      {
+        icon: "✍️",
+        head: "Convert hand drawings into permit-ready plans",
+        body: "The idea was to turn sketches and marked-up drawings into plan sets that can move through the permitting workflow faster.",
+      },
+      {
+        icon: "🧾",
+        head: "Automate form filling and lookups",
+        body: "We evaluated whether AI could fill forms, pull ZIMAS zoning data, and reduce repetitive administrative work.",
+      },
+      {
+        icon: "📤",
+        head: "Submit directly to LADBS",
+        body: "We also checked whether document submission to LADBS ePlan could be automated end-to-end.",
+      },
+      {
+        icon: "📈",
+        head: "Reduce time and cost at scale",
+        body: "The goal was to see if the permitting process could become cheaper, faster, and less dependent on manual coordination.",
+      },
     ],
-    note:"The key insight: your team is already taking these photos. We just put AI between the camera and the billing system." },
-  { id:4, section:"The Solution", title:"How It Works", subtitle:"A simple, low-friction workflow", type:"flow",
-    steps:[
-      { num:"01", label:"Photos uploaded", sub:"Drag & drop or Trello sync" },
-      { num:"02", label:"AI analyzes images", sub:"Claude Haiku 3.5 — <$0.01/call" },
-      { num:"03", label:"Report generated", sub:"Phase progress, flags, insights" },
-      { num:"04", label:"PM reviews & approves", sub:"One click — never auto-billed" },
-      { num:"05", label:"Billing triggered", sub:"Accurate, auditable, on time" },
+    note:
+      "This is the right question to ask. The answer, however, is that the hard parts of permitting are still dominated by judgment, liability, and process constraints that AI cannot remove.",
+  },
+  {
+    id: 4,
+    section: "Findings",
+    title: "Why Full Automation Is Not Viable Right Now",
+    subtitle: "The blockers are structural, not just technical",
+    type: "bullets",
+    bullets: [
+      {
+        icon: "🎯",
+        head: "Reliability gap",
+        body: "AI may read hand drawings at roughly 70–85% accuracy, but legal permitting documents require near-perfect reliability.",
+      },
+      {
+        icon: "⚖️",
+        head: "Human interpretation wins",
+        body: "LADBS plan checkers apply judgment and discretion that AI cannot predict or replicate reliably.",
+      },
+      {
+        icon: "🛡️",
+        head: "Liability remains with licensed staff",
+        body: "No insurance covers AI-generated construction documents, so engineers would still need to verify and stamp the output they stand behind.",
+      },
+      {
+        icon: "🚫",
+        head: "No public LADBS API",
+        body: "The ePlan / ProjectDox workflow is not API-friendly, which makes true automation fragile and potentially out of policy.",
+      },
+      {
+        icon: "📚",
+        head: "Code interpretation changes case by case",
+        body: "AI can read the rule, but it cannot reliably anticipate how a specific plan checker will interpret the rule on a specific project.",
+      },
     ],
-    note:"The PM approval gate is intentional — AI surfaces the information, humans make the billing decision." },
-  { id:5, section:"Why AI", title:"Why AI? Why Now?", subtitle:"The technology is ready, affordable, and purpose-fit", type:"bullets",
-    bullets:[
-      { icon:"🎯", head:"Vision AI is mature", body:"Modern models like Claude Haiku 3.5 reliably identify construction phases, materials, and progress from standard site photos." },
-      { icon:"💵", head:"Cost is negligible", body:"Analyzing 5 site photos costs less than $0.02. At 10 active projects, total AI cost is under $15/month." },
-      { icon:"⚡", head:"No infrastructure investment", body:"The entire platform runs on free-tier cloud services at launch. No servers, no IT team required." },
-      { icon:"🔒", head:"Safe & read-only integrations", body:"Trello access is strictly read-only at the API token level. Nothing can be written or modified." },
+    note:
+      "These limitations are why a direct drawing-to-permit automation product would be expensive to build, hard to trust, and difficult to maintain.",
+  },
+  {
+    id: 5,
+    section: "Findings",
+    title: "The Market Confirms the Same Lesson",
+    subtitle: "The closest examples all stopped short of full automation",
+    type: "bullets",
+    bullets: [
+      {
+        icon: "🏗️",
+        head: "Existing companies have not cracked it",
+        body: "Hypar, Maket.ai, Archistar, and Symbium all illustrate how hard the problem is when real permitting judgment is involved.",
+      },
+      {
+        icon: "🔎",
+        head: "The hard part is the ambiguity",
+        body: "Permitting work requires interpreting messy sketches, spotting easement conflicts, and knowing when to ask a plan checker before submission.",
+      },
+      {
+        icon: "🧩",
+        head: "Symbium succeeded by narrowing scope",
+        body: "Their strongest results came from restricted, pre-approved ADU plan sets, which removes much of the hard problem entirely.",
+      },
     ],
-    note:"This is not experimental AI. The same vision technology powers medical imaging, autonomous vehicles, and quality control in manufacturing." },
-  { id:6, section:"Options", title:"AI Model Options", subtitle:"Evaluated across Anthropic and OpenAI objectively", type:"table",
-    tableData:{
-      headers:["Model","Provider","Cost / 100 imgs","Strength","Recommendation"],
-      rows:[
-        ["Claude Opus 4","Anthropic","~$2.20–3.50","Design estimates, blueprints","🔮 Phase 6+"],
-        ["Claude Sonnet 4","Anthropic","~$0.45–0.70","Higher accuracy for complex scenes","🔁 Fallback"],
-        ["GPT-4o","OpenAI","~$0.38–0.60","Strong general vision","🔁 Alt. Fallback"],
-        ["Claude Haiku 3.5","Anthropic","~$0.12–0.20","Best structured JSON + instruction following","✅ Primary"],
-        ["GPT-4o mini","OpenAI","~$0.08–0.14","Lowest token cost","⚡ Alt. Primary"],
+    note:
+      "The market signal matters: the winning approaches are constrained, scoped, and human-supervised, not fully autonomous from the start.",
+  },
+  {
+    id: 6,
+    section: "Recommendation",
+    title: "Recommended Strategy",
+    subtitle: "Equip the existing engineering team. Don’t replace them.",
+    type: "bullets",
+    bullets: [
+      {
+        icon: "👷",
+        head: "Keep the engineering team central",
+        body: "Calimingo Pools already has the right people. AI should make them faster, not try to work around them.",
+      },
+      {
+        icon: "🤖",
+        head: "Use AI as a co-pilot",
+        body: "A skilled engineer using Claude or ChatGPT can handle 3–5x more projects than one working entirely manually.",
+      },
+      {
+        icon: "📎",
+        head: "Build a lightweight project hub",
+        body: "The highest-value internal build is a simple system that tracks intake, status, prompts, documents, and corrections in one place.",
+      },
+    ],
+    note:
+      "This is the practical middle ground: the team keeps ownership of judgment and liability, while AI removes the repetitive work around it.",
+  },
+  {
+    id: 7,
+    section: "Stack",
+    title: "Recommended AI Stack",
+    subtitle: "Practical tools with a low monthly footprint",
+    type: "table",
+    tableData: {
+      headers: ["Tool", "Purpose", "Cost"],
+      rows: [
+        ["Claude Pro", "Drawing interpretation, form drafting, code questions", "$20/user/mo"],
+        ["ChatGPT Pro", "Additional analysis and live web lookups", "$20/user/mo"],
+        ["Adobe Acrobat", "Filling and signing LADBS PDF forms", "$20/user/mo"],
+        ["SketchUp Free", "Light site plan drawing and cleanup", "$0"],
+        ["ZIMAS", "LA zoning lookups", "$0"],
+        ["Airtable or Notion", "Project tracking and document organization", "$0–$10/user/mo"],
       ],
-      highlight:3,
+      highlight: 0,
     },
-    oneTimeFees:[
-      { item:"Custom domain (optional)", amount:"~$12–15/yr", note:"If needed for branding" },
-      { item:"Project & repo setup", amount:"$0", note:"Included" },
-      { item:"API key setup (Anthropic / OpenAI)", amount:"$0", note:"Self-serve" },
+    oneTimeFees: [
+      { item: "Setup and workflow definition", amount: "$0–low", note: "Mostly process design and team adoption" },
+      { item: "Internal tool build", amount: "Limited", note: "A lightweight system is the only custom development worth prioritizing" },
     ],
-    hosting:[
-      { option:"Vercel Pro", cost:"$20/mo", note:"Team features, higher limits, previews" },
-      { option:"Neon Postgres", cost:"$0–19/mo", note:"Serverless Postgres; free tier for Phase 3+ storage, scale for growth" },
-      { option:"Other (Netlify, Railway)", cost:"Varies", note:"Alternatives" },
-      { option:"Vercel Hobby", cost:"$0/mo", note:"Free tier; sufficient for Phase 1–2" },
+    hosting: [
+      { option: "Total team tools", cost: "~$60–$70/user/month", note: "Enough for serious augmentation without a big platform bet" },
+      { option: "Local / lightweight backend", cost: "Low", note: "Keep infrastructure simple until real bottlenecks are proven" },
     ],
-    devTools:[
-      { name:"Cursor AI IDE", cost:"~$20/mo", benefit:"Elevated coding speed, in-editor AI; recommended for rapid iteration" },
-      { name:"GitHub Copilot (optional)", cost:"~$10/mo", benefit:"Code completion and suggestions" },
-      { name:"Analytics & logging (optional)", cost:"Free–low", benefit:"Usage and health visibility" },
-      { name:"Sentry / monitoring (optional)", cost:"Free tier", benefit:"Error tracking and stability" },
+    devTools: [
+      { name: "Prompt library", cost: "$0", benefit: "Reusable, team-specific prompts become the operational playbook" },
+      { name: "Document hub", cost: "$0–low", benefit: "Centralizes files, notes, and status in one workflow" },
+      { name: "Reminder automation", cost: "Low", benefit: "Helps nothing fall through the cracks" },
     ],
-    note:"We are prioritizing Claude Haiku 3.5 because it consistently returns structured, schema-friendly JSON, which is critical for milestone and billing workflows. GPT-4o mini remains a strong alternative when cost optimization is the main priority. Decision criteria: output consistency first, cost second, and fallback resilience for edge-case images." },
-  { id:7, section:"Roadmap", title:"Phased Rollout", subtitle:"Start simple. Expand based on proven value.", type:"roadmap",
-    phases:[
-      { num:"P1", title:"Drag & Drop + AI Output",    timeline:"Wks 1–2",   tag:"Launch Now", color:"#1a56db" },
-      { num:"P2", title:"Trello Integration",          timeline:"Wks 3–4",   tag:"Critical",   color:"#059669" },
-      { num:"P3", title:"Memory & Project Tracking",   timeline:"Wks 5–8",   tag:"Critical",   color:"#7c3aed" },
-      { num:"P4", title:"Automation & Scheduling",     timeline:"Wks 9–13",  tag:"Important",  color:"#d97706" },
-      { num:"P5", title:"Exports & Vendor Portal",     timeline:"Ongoing",   tag:"Important",  color:"#dc2626" },
-      { num:"P6", title:"Site Plans & Estimates",      timeline:"Future",    tag:"Future",     color:"#6b7280" },
-      { num:"P7", title:"Mobile PWA & Notifications",  timeline:"Future",    tag:"Optional",   color:"#0891b2" },
+    note:
+      "The goal is not to add dozens of tools. The goal is to give engineers a small, dependable stack that removes friction and keeps work moving.",
+  },
+  {
+    id: 8,
+    section: "Project Hub",
+    title: "The One Thing Worth Building",
+    subtitle: "A lightweight internal project management and document hub",
+    type: "nextsteps",
+    steps: [
+      {
+        num: "01",
+        label: "Project intake portal",
+        body: "Clients submit drawings, project details, and contacts in one place, with a checklist generated automatically by project type.",
+      },
+      {
+        num: "02",
+        label: "Pipeline status tracker",
+        body: "Every project gets a clear stage view showing what is waiting on the engineer, client, or city, plus deadline reminders.",
+      },
+      {
+        num: "03",
+        label: "Internal prompt library",
+        body: "The best Claude and ChatGPT prompts are saved and organized by task, so the team reuses what works instead of starting over.",
+      },
+      {
+        num: "04",
+        label: "Document assembly",
+        body: "Once the engineer is done, the system packages files into the correct LADBS-ready format, names them correctly, and checks the submission bundle.",
+      },
+      {
+        num: "05",
+        label: "Redline and correction tracker",
+        body: "Every city correction is logged so patterns emerge over time and the team builds a defensible internal knowledge base.",
+      },
     ],
-    note:"Phases 1–3 are the core product. Phase 1 can be built and tested in 1–2 weeks using only an Anthropic API key — zero infrastructure cost." },
-  { id:8, section:"Cost", title:"Total Cost of Ownership", subtitle:"Remarkably low — even at scale", type:"cost",
-    tiers:[
-      { label:"Launch (2–3 projects)", ai:"$1.50–3",   infra:"$0",     total:"< $5/mo" },
-      { label:"Growth (10–30 projects)", ai:"$7–35",   infra:"$20–45", total:"$27–80/mo" },
-      { label:"Scale (100 projects)",  ai:"$65–110",   infra:"$45–80", total:"$110–190/mo" },
+    note:
+      "This hub is the highest-leverage build because it improves the work that already happens every day instead of trying to replace it.",
+  },
+  {
+    id: 9,
+    section: "Timeline",
+    title: "Project Hub Build Timeline",
+    subtitle: "Phased, sustainable, and realistic for a single developer",
+    type: "roadmap",
+    phases: [
+      { num: "P1", title: "Foundation", timeline: "Months 1–2", tag: "Immediate value", color: "#1d4ed8" },
+      { num: "P2", title: "Intelligence Layer", timeline: "Months 3–4", tag: "Workflow speed", color: "#059669" },
+      { num: "P3", title: "Document & Submission Layer", timeline: "Months 5–6", tag: "Scale support", color: "#7c3aed" },
     ],
-    note:"These figures are directional estimates based on current assumptions (active projects, images per submission, submissions per week, and model choice). If image volume, report depth, or output token size increases, total cost projections will rise accordingly. Even then, AI cost is typically lower than recurring manual reporting effort." },
-  { id:9, section:"Risks", title:"Risks & How We Mitigate Them", subtitle:"We've planned for what could go wrong", type:"bullets",
-    bullets:[
-      { icon:"🎯", head:"AI misidentifies a phase", body:"We use a semi-automation model as the best compromise: AI handles detection and drafting, while humans handle validation and final decisions. Confidence scoring plus mandatory PM approval ensures no billing is triggered without human intervention." },
-      { icon:"📷", head:"Poor image quality", body:"Minimum resolution check on upload. Field team guidelines with example photos provided at rollout." },
-      { icon:"💾", head:"Data privacy", body:"Images stay in Trello. Only analysis JSON stored in our database. EXIF/GPS data stripped before any API call." },
-      { icon:"👥", head:"Field team adoption", body:"No new tools required in Phase 1–2. Teams continue using Trello normally. The AI works in the background." },
+    note:
+      "The timeline reflects real constraints: one developer, ongoing work, and a need to deliver value in the first month rather than waiting for the whole system to be complete.",
+  },
+  {
+    id: 10,
+    section: "Timeline",
+    title: "What Each Phase Delivers",
+    subtitle: "The system grows in useful layers, not as a giant all-at-once build",
+    type: "bullets",
+    bullets: [
+      {
+        icon: "1️⃣",
+        head: "Phase 1: intake + status tracking",
+        body: "Get the basics running first: intake form, project tracker, document structure, and parallel use of Claude Pro and Adobe Acrobat.",
+      },
+      {
+        icon: "2️⃣",
+        head: "Phase 2: prompt library + automation",
+        body: "Add the reusable prompts, ZIMAS lookups, checklist generation, and reminder automation that make engineers faster.",
+      },
+      {
+        icon: "3️⃣",
+        head: "Phase 3: documents + redlines",
+        body: "Finish the workflow with assembly, correction tracking, final submission checks, and refinement based on real usage.",
+      },
     ],
-    note:"Semi-automation is intentional. AI accelerates analysis, but human intervention remains the control point for validation and decision-making. The key safeguard stays the same: billing is never auto-triggered; every milestone requires PM approval." },
-  { id:10, section:"Next Steps", title:"What We Need to Move Forward", subtitle:"Phase 1 can start immediately", type:"nextsteps",
-    steps:[
-      { num:"01", label:"Align on expected output format", body:"Agree on the report structure so implementation is mapped to your real billing workflow.", bullets:["Share one real billing/progress report sample.","Confirm required sections, fields, and terminology.","Define which fields are mandatory vs optional."] },
-      { num:"02", label:"Provide sample site images", body:"Use representative real-world photos to calibrate phase detection quality before development.", bullets:["Provide varied photos (angles, lighting, progress stages).","Include both clear and challenging examples.","Target a starter set of 20–40 images."] },
-      { num:"03", label:"Approve Phase 1 scope", body:"Finalize MVP scope so delivery is fast, focused, and testable within 1–2 weeks.", bullets:["Confirm in-scope: upload, AI analysis, structured output.","Confirm out-of-scope for Phase 1 to avoid drift.","Approve timeline, owner, and review cadence."] },
-      { num:"04", label:"Identify PM pilot participant", body:"Assign one pilot PM to validate outputs and provide practical feedback quickly.", bullets:["Nominate one PM decision-maker for approvals.","Define pilot project and reporting frequency.","Set a weekly review loop for adjustments."] },
-      { num:"05", label:"Set success criteria", body:"Define measurable outcomes up front so go/no-go decisions are objective.", bullets:["Target phase detection accuracy threshold (e.g., >=90%).","Set report turnaround target (e.g., <30 seconds).","Set acceptance criteria for billing readiness and usability."] },
+    note:
+      "Each phase is valuable on its own, which keeps the team moving even if the build takes longer than expected.",
+  },
+  {
+    id: 11,
+    section: "Cost Comparison",
+    title: "Cost Comparison",
+    subtitle: "The better strategy is also the cheaper one to start",
+    type: "cost",
+    tiers: [
+      { label: "Full AI automation", ai: "$150K–$400K", infra: "High maintenance", total: "18–24 months" },
+      { label: "Custom AI drawing tools", ai: "$50K–$100K", infra: "Medium", total: "6–12 months" },
+      { label: "Equipped team + project hub", ai: "$5K–$20K", infra: "$60–$70/user", total: "4–8 weeks" },
     ],
-    note:"We can have a working Phase 1 prototype in front of stakeholders within 2 weeks of approval. The ask today is simply: let's start." },
-  { id:11, section:"Additionally", title:"Additional Opportunities", subtitle:"Optional enhancements that extend PoolSight AI further", type:"additionally",
-    items:[
-      { icon:"⚡", head:"Zapier Integration", body:"Use your existing Zapier Pro plan to trigger AI analysis the moment a photo is uploaded to Trello, send billing alerts to Slack, and push approved milestones directly to QuickBooks — no extra dev work needed.", tag:"High Value" },
-      { icon:"💬", head:"Viber Notifications", body:"Send automated progress updates, billing alerts, and PM approval requests directly to Viber. Field teams and executives get real-time updates on the messaging app they already use.", tag:"High Value" },
-      { icon:"📱", head:"Mobile PWA", body:"A Progressive Web App installable on iPhone 15, Android, and iPad — optimized for each screen size. Field teams get camera capture, instant upload, and on-site progress views without a separate app download.", tag:"Recommended" },
-      { icon:"📋", head:"Project Template Library", body:"Pre-built phase templates for standard pools, infinity pools, and lap pools with preset billing milestones. New projects spin up in seconds with the correct contract structure already in place.", tag:"Quick Win" },
-      { icon:"📸", head:"Photo Guidelines for Field Teams", body:"A one-page PDF with example shots (angle, distance, lighting) for each construction phase. Directly improves AI detection accuracy at zero engineering cost.", tag:"Quick Win" },
-      { icon:"📊", head:"Weekly Executive Digest", body:"Automated Monday morning summary across all active projects, delivered via email or Slack. Executives get passive visibility without logging into anything.", tag:"Low Effort" },
-      { icon:"🏗️", head:"OSHA Safety Compliance Scoring", body:"Automatically score each job site photo against a safety checklist — missing fencing, hard hat compliance, equipment storage. Flags issues before they become incidents or liabilities.", tag:"Future" },
+    note:
+      "This is the clearest decision point in the report: the recommended path is much faster to deploy, much cheaper to start, and much more reliable in real permitting work.",
+  },
+  {
+    id: 12,
+    section: "Why This Wins",
+    title: "Why This Is the Right Move",
+    subtitle: "The strategy is practical, defensible, and future-ready",
+    type: "bullets",
+    bullets: [
+      { icon: "⏩", head: "Speed to value", body: "Operational in weeks, not years." },
+      { icon: "🧯", head: "Low risk", body: "No large upfront technology bet. Start small and iterate from real friction." },
+      { icon: "✅", head: "High reliability", body: "Human judgment stays in the loop where it matters most." },
+      { icon: "📈", head: "Scalable", body: "Add engineers using the same system as volume grows." },
+      { icon: "🏰", head: "Defensible", body: "The playbook, relationships, and institutional knowledge are harder to copy than software." },
+      { icon: "🔭", head: "Future-ready", body: "Targeted automation can be added later when bottlenecks become clear from real data." },
     ],
-    note:"These are not required for launch but represent high-value opportunities that are relatively easy to layer onto the core platform once Phases 1–3 are stable." },
+    note:
+      "This is not anti-AI. It is the smartest way to use AI today so the company can earn compounding benefits without overbuilding.",
+  },
+  {
+    id: 13,
+    section: "Not Recommended",
+    title: "What We Do Not Recommend Right Now",
+    subtitle: "Hold these ideas until workflow maturity and data justify them",
+    type: "bullets",
+    bullets: [
+      {
+        icon: "🧱",
+        head: "Custom CAD / DXF generation tools",
+        body: "These are expensive to build and too risky to automate before the underlying workflow is stable.",
+      },
+      {
+        icon: "📝",
+        head: "Automated LADBS form-filling pipelines",
+        body: "Form filling can be assisted, but full automation is not justified yet.",
+      },
+      {
+        icon: "🕷️",
+        head: "ePlan submission via portal scraping",
+        body: "Fragile, policy-sensitive, and likely to create more maintenance than value.",
+      },
+      {
+        icon: "🔌",
+        head: "AutoCAD / Revit API investment for AI-driven output",
+        body: "Useful later, but not the right first investment for this stage of the business.",
+      },
+    ],
+    note:
+      "These ideas may matter in the future, but not before the team has better data and a smoother internal workflow.",
+  },
+  {
+    id: 14,
+    section: "Next Steps",
+    title: "Immediate Next Steps",
+    subtitle: "Simple actions for the next week",
+    type: "nextsteps",
+    steps: [
+      {
+        num: "01",
+        label: "Subscribe the engineering team",
+        body: "Give the team access to Claude Pro and Adobe Acrobat so they can start using the recommended workflow immediately.",
+      },
+      {
+        num: "02",
+        label: "Set up a tracker this week",
+        body: "Use Airtable or Notion to create a basic project tracker and document hub right away.",
+      },
+      {
+        num: "03",
+        label: "Run real projects through the workflow",
+        body: "Test the assisted process on 10–20 live projects to see where the friction and the value really are.",
+      },
+      {
+        num: "04",
+        label: "Document prompts and bottlenecks",
+        body: "Capture every prompt that works, every correction pattern, and every step that slows the team down.",
+      },
+      {
+        num: "05",
+        label: "Revisit in 6 months",
+        body: "Use actual project data to decide whether any specific automation deserves deeper investment.",
+      },
+    ],
+    note:
+      "The next steps are intentionally concrete so the team can start capturing value without waiting for a larger platform build.",
+  },
+  {
+    id: 15,
+    section: "Conclusion",
+    title: "Conclusion",
+    subtitle: "AI should make the team more capable, not disappear from the process",
+    type: "bullets",
+    bullets: [
+      {
+        icon: "🎯",
+        head: "The goal was augmentation",
+        body: "The point was never to remove engineers from permitting, but to make them more efficient and more effective.",
+      },
+      {
+        icon: "🧩",
+        head: "The right system already exists conceptually",
+        body: "Claude, ChatGPT, Acrobat, a simple tracker, and an internal playbook can deliver a real advantage today.",
+      },
+      {
+        icon: "🏆",
+        head: "The engineers are the product",
+        body: "With the right tools and workflow, the team itself becomes the differentiator Calimingo Pools can build around.",
+      },
+    ],
+    note:
+      "The final takeaway is that the best competitive advantage is not a risky automation bet — it is a disciplined, AI-assisted engineering workflow that compounds over time.",
+  },
 ];
 
 const PHASES = [
@@ -310,8 +547,36 @@ function Badge({ label, variant }) {
   );
 }
 
+function WelcomeTab() {
+  return (
+    <section className="flex h-full flex-col bg-slate-950 text-white">
+      <div className="flex flex-1 items-center justify-center px-10 py-8 text-center">
+        <div>
+          <h1 className="mb-0 text-6xl font-extrabold tracking-tight text-white sm:text-7xl">
+            Pool<span className="text-sky-400">Sight</span>AI
+          </h1>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── PRESENTATION TAB ────────────────────────────────────────────────────
-const sectionColor = { Introduction:"bg-blue-700","The Problem":"bg-red-600","The Solution":"bg-emerald-600","Why AI":"bg-violet-600",Options:"bg-amber-600",Roadmap:"bg-cyan-600",Cost:"bg-emerald-600",Risks:"bg-orange-500","Next Steps":"bg-blue-700",Additionally:"bg-violet-600" };
+const sectionColor = {
+  Cover: "bg-slate-800",
+  "Executive Summary": "bg-blue-700",
+  "The Problem": "bg-red-600",
+  Findings: "bg-rose-600",
+  Recommendation: "bg-emerald-600",
+  Stack: "bg-amber-600",
+  "Project Hub": "bg-cyan-700",
+  Timeline: "bg-violet-600",
+  "Cost Comparison": "bg-orange-500",
+  "Why This Wins": "bg-sky-700",
+  "Not Recommended": "bg-slate-600",
+  "Next Steps": "bg-blue-700",
+  Conclusion: "bg-emerald-700",
+};
 
 const slideTransition = { duration: 0.3, ease: [0.32, 0.72, 0, 1] };
 const staggerContainer = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.06, delayChildren: 0.05 } } };
@@ -320,11 +585,11 @@ const staggerItem = { hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0
 function PresentationTab() {
   const [index, setIndex] = useState(0);
   const [showNote, setShowNote] = useState(false);
-  const directionRef = useRef(1);
+  const [direction, setDirection] = useState(1);
   const slide = SLIDES[index];
   const sections = [...new Set(SLIDES.map((s) => s.section))];
   const go = (d) => {
-    directionRef.current = d;
+    setDirection(d);
     setIndex((i) => Math.max(0, Math.min(SLIDES.length - 1, i + d)));
   };
 
@@ -384,9 +649,9 @@ function PresentationTab() {
           <AnimatePresence initial={false} mode="wait">
             <motion.div
               key={slide.id}
-              initial={{ x: directionRef.current * 48, opacity: 0 }}
+              initial={{ x: direction * 48, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -directionRef.current * 48, opacity: 0 }}
+              exit={{ x: -direction * 48, opacity: 0 }}
               transition={slideTransition}
               className="min-h-full"
             >
@@ -397,9 +662,15 @@ function PresentationTab() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.4 }}
             >
-              <p className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Executive Proposal · March 2026</p>
+              {slide.id !== 1 ? (
+                <p className="mb-4 text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">
+                  Executive Proposal · March 2026
+                </p>
+              ) : null}
               <h1 className="mb-3 text-6xl font-extrabold tracking-tight text-white sm:text-7xl">Pool<span className="text-sky-400">Sight</span> AI</h1>
-              <p className="mb-10 max-w-xl text-base text-slate-300 sm:text-lg">{slide.subtitle}</p>
+              {slide.id !== 1 ? (
+                <p className="mb-10 max-w-xl text-base text-slate-300 sm:text-lg">{slide.subtitle}</p>
+              ) : null}
             </motion.div>
           )}
 
@@ -965,7 +1236,7 @@ function DemoTab() {
       });
 
       const data = await res.json();
-      if (!res.ok || data.error) {
+      if (!res.ok) {
         throw new Error(data.error || "Request failed");
       }
       setResult(data);
@@ -1346,6 +1617,25 @@ function DemoTab() {
 
           {result && (
             <section aria-label="Analysis results" className="space-y-5">
+              {result.meta && result.meta.ok === false && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+                >
+                  <p className="font-medium">
+                    {result.meta.errorCode === "rate_limit"
+                      ? "Rate limit exceeded"
+                      : "Low confidence — analysis could not be fully completed."}
+                  </p>
+                  <p className="mt-1 text-amber-700">
+                    {result.details
+                      ? result.details
+                      : result.meta.errorCode === "rate_limit"
+                        ? "Use fewer photos (up to 10) or try again in a minute."
+                        : "Showing fallback recommendations. You can try running the analysis again."}
+                  </p>
+                </div>
+              )}
               <div className="grid gap-3 md:grid-cols-4">
                 <article className="rounded-lg border border-slate-200 bg-white p-3">
                   <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -1397,6 +1687,21 @@ function DemoTab() {
                 <h3 className="text-sm font-semibold text-slate-900">
                   🔎 AI image analysis summary
                 </h3>
+                {result.summary && result.summary.trim() ? (
+                  <p className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">
+                    {result.summary.trim()}
+                  </p>
+                ) : null}
+                {result.image_coverage_note && String(result.image_coverage_note).trim() ? (
+                  <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                      Image coverage
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-xs text-slate-700">
+                      {String(result.image_coverage_note).trim()}
+                    </p>
+                  </div>
+                ) : null}
                 <p className="mt-2 text-xs text-slate-600">
                   The model analyzed the uploaded photos with
                   {` ${confidenceLabel} `}
@@ -1482,7 +1787,20 @@ function DemoTab() {
                                   {row.current_percent}
                                 </td>
                                 <td className="px-3 py-2.5 text-sm text-slate-800">
-                                  {row.suggested_percent}
+                                  <div className="text-slate-800">
+                                    {row.suggested_percent}
+                                    {row.suggested_percent_range &&
+                                    row.suggested_percent_range !== row.suggested_percent ? (
+                                      <span className="ml-1 text-xs text-slate-500">
+                                        ({row.suggested_percent_range})
+                                      </span>
+                                    ) : null}
+                                    {row.photo_supported ? (
+                                      <span className="ml-2 text-xs text-slate-500">
+                                        [{row.photo_supported}]
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 </td>
                                 <td className="px-3 py-2.5 text-sm">
                                   <span
@@ -1497,7 +1815,22 @@ function DemoTab() {
                                   </span>
                                 </td>
                                 <td className="px-3 py-2.5 text-sm text-slate-600">
-                                  {row.notes}
+                                  {/no clear billable evidence/i.test(row.notes || "") ? (
+                                    <span className="inline-flex items-center gap-1 text-slate-500">
+                                      <span className="text-[11px] italic">
+                                        No clear billable evidence from current image set
+                                      </span>
+                                      <span
+                                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] font-semibold text-slate-600"
+                                        title={row.notes}
+                                        aria-label={row.notes}
+                                      >
+                                        i
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    row.notes
+                                  )}
                                 </td>
                               </tr>
                             ))}
@@ -1771,8 +2104,11 @@ function CostTab() {
 
 // ─── ROOT APP SHELL ──────────────────────────────────────────────────────
 
-export default function PoolsightApp() {
-  const [tab, setTab] = useState("present");
+/**
+ * @param {{ initialTab?: string }} props
+ */
+export default function PoolsightApp({ initialTab } = {}) {
+  const [tab, setTab] = useState(initialTab ?? "present");
 
   return (
     <div className="flex h-screen bg-slate-100 text-slate-900">
@@ -1817,10 +2153,12 @@ export default function PoolsightApp() {
         </footer>
       </aside>
 
-      <main className="flex-1">
+      <main className="flex-1 overflow-hidden">
+        {tab === "welcome" && <WelcomeTab />}
         {tab === "present" && <PresentationTab />}
         {tab === "plan" && <PlanTab />}
         {tab === "demo" && <DemoTab />}
+        {tab === "trello" && <TrelloDashboard />}
         {tab === "cost" && <CostTab />}
       </main>
     </div>
