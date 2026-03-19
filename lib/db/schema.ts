@@ -6,6 +6,7 @@ import {
   timestamp,
   decimal,
   integer,
+  serial,
   pgEnum,
   jsonb,
   unique,
@@ -179,3 +180,41 @@ export const aiAnalysisResultLineItems = pgTable(
     ).on(table.contractItemId),
   })
 );
+
+// ──────────────────────────────────────────────────────────────────────────
+// PERMITS MODULE
+// ──────────────────────────────────────────────────────────────────────────
+
+export const permitProjects = pgTable("permit_projects", {
+  id: serial("id").primaryKey(),
+  projectId: uuid("project_id").references(() => projects.id),
+  address: text("address").notNull(),
+  apn: text("apn"),
+  projectType: text("project_type").notNull(),
+  zoningClassification: text("zoning_classification"),
+  status: text("status").default("intake"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const permitDocuments = pgTable("permit_documents", {
+  id: serial("id").primaryKey(),
+  permitProjectId: integer("permit_project_id").references(
+    () => permitProjects.id
+  ),
+  documentType: text("document_type").notNull(),
+  fileName: text("file_name").notNull(),
+  storagePath: text("storage_path"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const permitRedlines = pgTable("permit_redlines", {
+  id: serial("id").primaryKey(),
+  permitProjectId: integer("permit_project_id").references(
+    () => permitProjects.id
+  ),
+  rawCorrections: text("raw_corrections").notNull(),
+  draftResponse: text("draft_response"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});

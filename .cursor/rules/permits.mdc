@@ -1,0 +1,232 @@
+---
+globs: app/permits/**, app/api/permits/**, components/permits/**, lib/permits/**, types/permits.ts
+path: app/permits/**, app/api/permits/**, components/permits/**, lib/permits/**, types/permits.ts
+---
+
+# Calimingo Permit Tools — Cursor Rules
+> Scoped to the permits module only. Does not affect existing app behavior.
+
+---
+
+## Module Boundaries
+
+All permit code is self-contained. Never import from or write to existing app folders.
+
+### This module owns:
+- `app/permits/**`
+- `app/api/permits/**`
+- `components/permits/**`
+- `lib/permits/**`
+- `types/permits.ts`
+
+### Shared files — extend carefully, never overwrite:
+- `lib/db/schema.ts` — add new permit tables at the bottom only, under a `// PERMITS MODULE` comment
+- `app/layout.tsx` — only touch to add the Permit Tools nav link
+
+---
+
+## AI Model
+
+Always use `claude-sonnet-4-20250514` in all permit API routes.
+Do not use any other model — other parts of the app use different models.
+
+```ts
+model: "claude-sonnet-4-20250514",
+max_tokens: 1000, // use 2000 only for redline-drafter and site-plan-generator
+```
+
+---
+
+## Prompts
+
+All Claude prompts live in `lib/permits/prompts.ts` only.
+Never inline a prompt inside an API route file.
+
+```ts
+// ✅ Good
+import { RENDERING_INTERPRETER_PROMPT } from "@/lib/permits/prompts"
+
+// ❌ Bad
+const prompt = `You are a permit technician...`
+```
+
+Always instruct Claude to return JSON only — no markdown, no preamble.
+Always wrap `JSON.parse` in try/catch.
+
+---
+
+## API Routes
+
+- All permit routes go under `app/api/permits/` only
+- Every route must have try/catch
+- Return consistent response shapes:
+
+```ts
+// Success
+return NextResponse.json({ success: true, data: result })
+
+// Error
+return NextResponse.json({ success: false, error: "Human readable message" }, { status: 500 })
+```
+
+- Validate all inputs — return 400 for missing required fields
+- Never expose raw error messages or stack traces to the client
+
+---
+
+## Types
+
+All permit types live in `types/permits.ts`.
+Never redefine a type locally inside a component or route.
+
+```ts
+// ✅ Good
+import type { DrawingAnalysisResult, RenderingInterpretation } from "@/types/permits"
+
+// ❌ Bad
+const result: { dimensions: any[] } = ...
+```
+
+No `any`. No `as unknown`. No `!` non-null assertions.
+
+---
+
+## Components
+
+- Default to Server Components
+- Add `"use client"` only when hooks or browser APIs are needed
+- Keep components under ~150 lines — split if larger
+- Tailwind classes only — no inline styles
+- Always handle loading and error states explicitly
+
+---
+
+## File Uploads
+
+- Drawing Analyzer: `image/jpeg`, `image/png`, `application/pdf`
+- Site Plan Generator: `image/jpeg`, `image/png`, `application/pdf`
+- PDF Assembler: `application/pdf` only
+- Validate MIME type on both client and server
+- Cap file size at 10MB client-side before upload
+
+```ts
+if (file.size > 10 * 1024 * 1024) {
+  setError("File must be under 10MB")
+  return
+}
+```
+
+---
+
+## Tool 7 — Specific Rules
+
+### The Engineer Confirmation Gate
+This is the most critical rule in the entire module.
+The generate endpoint must NEVER proceed if any feature has `engineerConfirmed: false`.
+
+```ts
+// This check is REQUIRED in /api/permits/site-plan-generator/generate/route.ts
+// Do not remove, skip, or work around it under any circumstances
+const unconfirmed = inputs.confirmedFeatures.filter(f => !f.engineerConfirmed)
+if (unconfirmed.length > 0) {
+  return NextResponse.json(
+    { success: false, error: "All features must be confirmed by the engineer before generating." },
+    { status: 400 }
+  )
+}
+```
+
+Also enforced on the client — the Generate button must be disabled until all features
+are confirmed or removed. Both client and server enforce this independently.
+
+### SVG and DXF Are Pure Functions
+`lib/permits/sitePlanSvg.ts` and `lib/permits/sitePlanDxf.ts` must:
+- Never call the Claude API or any external service
+- Never have side effects
+- Be fully deterministic — same input always produces same output
+- Be testable in complete isolation from the rest of the app
+
+```ts
+// ✅ Correct
+export function generateSitePlanSvg(inputs: SitePlanInputs): string { ... }
+
+// ❌ Wrong — no async, no API calls
+export async function generateSitePlanSvg(inputs: SitePlanInputs): Promise<string> { ... }
+```
+
+### TBC for Missing Dimensions
+SVG and DXF generators must show "TBC" for any unconfirmed or missing dimension.
+Never render 0, null, or undefined as a dimension value.
+
+```ts
+// ✅ Correct
+const width = confirmedDimensions[feature.id]?.width
+const widthLabel = width != null ? `${width}ft` : "TBC"
+
+// ❌ Wrong
+const widthLabel = confirmedDimensions[feature.id]?.width ?? 0
+```
+
+### Unconfirmed Features Never Render
+If `engineerConfirmed: false`, the feature must not appear in SVG or DXF output.
+Filter before passing to generators — not inside the generators themselves.
+
+### Disclaimer Is Non-Negotiable
+Every output must include this text verbatim:
+```
+"AI-GENERATED DRAFT — FOR ENGINEER USE ONLY.
+This document has not been reviewed or stamped by a licensed professional.
+It must not be submitted for permitting or used for construction."
+```
+- SVG: diagonal watermark in light gray
+- DXF: TEXT entity on DISCLAIMER layer
+- Data sheet: bold banner top and bottom of every page
+
+Never remove or make the disclaimer optional. Never hide it behind a toggle.
+
+### State Management
+Tool 7 page uses `useReducer` — not `useState`.
+All stage transitions go through the reducer.
+Never mutate state directly outside of dispatch calls.
+
+### DXF Format
+Always generate DXF R12 format for maximum CAD compatibility.
+Do not use external DXF libraries — generate via string templates.
+Always include all layers defined in the spec even if empty.
+
+---
+
+## AI Output Rules (All Tools)
+
+Every AI-generated output must be:
+- Editable by the engineer before use
+- Clearly labeled as AI-generated
+- Never auto-submitted or auto-applied
+
+Confidence levels must always be visible for Drawing Analyzer and Tool 7 outputs.
+Low-confidence items must be visually flagged (yellow/red).
+
+---
+
+## Naming Conventions
+
+```
+Components:   PascalCase     → ToolCard.tsx, FeatureEditor.tsx
+API routes:   kebab-case     → analyze-drawing/, site-plan-generator/
+DB tables:    snake_case     → permit_projects, permit_documents
+Types:        PascalCase     → RenderingInterpretation, SitePlanInputs
+Functions:    camelCase      → generateSitePlanSvg(), analyzeDrawing()
+Constants:    SCREAMING_SNAKE → RENDERING_INTERPRETER_PROMPT
+```
+
+---
+
+## What Not to Build
+
+- No automated ePlan / LADBS portal submission
+- No final stamped document generation — all output is engineer-reviewed draft
+- No image or file storage in DB — store file path references only
+- No AI in Tool 3 (Lot Calculator) — pure math only
+- No AI in SVG/DXF generation (Tool 7) — pure functions only
+- No feature that bypasses the engineer confirmation gate
+- No non-pool project types in Tool 7 yet

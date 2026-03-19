@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import TrelloDashboard from "../components/TrelloDashboard";
+import ProjectsPage from "./projects/page";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────
 const NAV = [
   { id: "welcome", label: "Welcome", icon: "🏊" },
-  { id: "plan", label: "Project Plan", icon: "📋" },
-  { id: "demo", label: "Live Demo", icon: "🎬" },
   { id: "trello", label: "Trello", icon: "🗂️" },
-  { id: "cost", label: "Cost Calculator", icon: "💰" },
+  { id: "projects", label: "Projects", icon: "📁" },
+  { id: "plan", label: "Project Plan", icon: "📋" },
+  { id: "permits", label: "Permit Tools", icon: "📝", href: "/permits" },
 ];
 
 const TAG_WIDTH_CLASS = "min-w-[88px]"; // shared fixed width for badges
@@ -549,15 +550,177 @@ function Badge({ label, variant }) {
 
 function WelcomeTab() {
   return (
-    <section className="flex h-full flex-col bg-slate-950 text-white">
-      <div className="flex flex-1 items-center justify-center px-10 py-8 text-center">
-        <div>
-          <h1 className="mb-0 text-6xl font-extrabold tracking-tight text-white sm:text-7xl">
-            Pool<span className="text-sky-400">Sight</span>AI
-          </h1>
+    <div
+      className="h-full overflow-y-auto overflow-x-hidden snap-y snap-mandatory"
+      role="region"
+      aria-label="Welcome"
+    >
+      {/* Hero */}
+      <section className="relative flex min-h-full snap-start flex-col items-center justify-center bg-slate-950 px-8 py-12 text-center text-white">
+        <img
+          src="/Calimingo.png"
+          alt="Calimingo"
+          className="mb-4 h-20 w-20 object-contain"
+        />
+        <h1 className="mb-2 text-5xl font-extrabold tracking-tight sm:text-6xl md:text-7xl">
+          Pool<span className="text-sky-400">Sight</span>AI
+        </h1>
+        <p className="max-w-xl text-lg text-slate-300">
+          Construction progress intelligence & billing reconciliation
+        </p>
+
+        {/* Scroll hint */}
+        <div
+          className="pointer-events-none absolute bottom-8 left-1/2 -translate-x-1/2"
+          aria-hidden="true"
+        >
+          <span className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/40 px-3 py-1 text-xs text-slate-200">
+            Scroll down <span>↓</span>
+          </span>
         </div>
-      </div>
-    </section>
+      </section>
+
+      {/* How to use */}
+      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-900 px-8 py-8 text-white">
+        <h2 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">
+          How to use
+        </h2>
+        <div className="max-w-2xl text-left text-slate-200">
+          <ol className="ml-4 list-decimal space-y-3 text-sm leading-snug">
+            <li>
+              <strong className="text-white">Using Trello</strong>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-200">
+                <li>Open Trello from the sidebar and select your board.</li>
+                <li>Open a list (e.g. a list that holds your weekly or daily photos).</li>
+                <li>
+                  Choose photos for analysis — check the boxes next to images already attached to cards,
+                  or use the upload option to add photos from your computer. Both can be analyzed.
+                </li>
+                <li>
+                  Add a PM update (optional) — notes like “tile ready for pickup” or “rough-in complete”.
+                </li>
+                <li>
+                  Run AI analysis — results show line-item progress, status badges (Advance/Hold/Verify/OK),
+                  and key actions.
+                </li>
+              </ul>
+            </li>
+            <li>
+              <strong className="text-white">Saving analysis to a project</strong>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-200">
+                <li>After the AI finishes, use “Save as report entry”.</li>
+                <li>
+                  Choose an existing project (to add a new entry) or “Create New Project”.
+                </li>
+                <li>
+                  You can save to a project that already has report entries — each save adds another entry.
+                </li>
+                <li>Click Save entry. The report appears under Report entries on the project page.</li>
+              </ul>
+            </li>
+            <li>
+              <strong className="text-white">Projects & line items</strong>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-200">
+                <li>Create a project — go to Projects and add a new project.</li>
+                <li>
+                  Import line items — upload a contract file (EML) to parse and import your billing items.
+                </li>
+                <li>Select line items — choose which items to include in analyses.</li>
+                <li>
+                  Run AI analysis — with photos and selected line items, the AI aligns results to your contract items.
+                </li>
+              </ul>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      {/* Guides, tips & known issues */}
+      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-950 px-8 py-12 text-white">
+        <h2 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">
+          Guides, tips & known issues
+        </h2>
+        <div className="max-w-2xl">
+          <ul className="space-y-3 text-left text-sm text-slate-200" role="list">
+            <li className="flex gap-2">
+              <span className="font-bold text-sky-400">•</span>
+              <span>
+                Use <strong>clear, well-lit photos</strong>. If you have renderings/drawings, include them in the
+                Documents cards so the AI can match what “done” should look like.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-sky-400">•</span>
+              <span>
+                Add a <strong>PM update</strong> (optional) for context, like “tile ready for pickup” or “rough-in complete”.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-sky-400">•</span>
+              <span>
+                Provide <strong>contract line-item labels</strong> when available so the AI aligns results to your contract items.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-sky-400">•</span>
+              <span>
+                <strong>Trello is read-only</strong> — nothing is written back to your boards.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-amber-400">•</span>
+              <span>
+                <strong>Too many photos</strong> — If you hit an error, run again with fewer images (up to 10) or shorten the PM update.
+              </span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-bold text-amber-400">•</span>
+              <span>
+                <strong>Rate limits</strong> — If analyses fail repeatedly, wait a bit and try again, or use fewer photos per run.
+              </span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      {/* About the project */}
+      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-950 px-8 py-12 text-white">
+        <h2 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">
+          About the project
+        </h2>
+        <div className="max-w-2xl space-y-4 text-center text-slate-200">
+          <p>
+            PoolSightAI turns construction site photos into billing-ready reconciliation reports. The AI analyzes images, extracts progress by line item, and produces standardized tables with <strong>status badges</strong> (Advance, Hold, Verify, OK) and <strong>key actions</strong>.
+          </p>
+        </div>
+      </section>
+
+      {/* Key features */}
+      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-900 px-8 py-12 text-white">
+        <h2 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">
+          Key features
+        </h2>
+        <ul className="max-w-2xl space-y-4 text-left text-slate-200" role="list">
+          <li className="flex gap-3">
+            <span className="font-bold text-sky-400">•</span>
+            <span><strong>Trello</strong> — Connect boards, analyze list photos, save to projects.</span>
+          </li>
+          <li className="flex gap-3">
+            <span className="font-bold text-sky-400">•</span>
+            <span><strong>Projects</strong> — Parse contracts, select line items, run and save analyses.</span>
+          </li>
+          <li className="flex gap-3">
+            <span className="font-bold text-sky-400">•</span>
+            <span><strong>Project Plan</strong> — Phased rollout (P1–P7) and roadmap.</span>
+          </li>
+          <li className="flex gap-3">
+            <span className="font-bold text-sky-400">•</span>
+            <span><strong>AI analysis</strong> — Analyzes photos for scope, completion %, and billing recommendations. Enforces construction sequencing (excavation → shell → tile → decking → plaster).</span>
+          </li>
+        </ul>
+      </section>
+
+    </div>
   );
 }
 
@@ -2114,14 +2277,16 @@ export default function PoolsightApp({ initialTab } = {}) {
     <div className="flex h-screen bg-slate-100 text-slate-900">
       <aside className="flex w-56 flex-col bg-slate-950 text-slate-100">
         <div className="border-b border-slate-800 px-5 py-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600 text-base">
-            🏊
-          </div>
-          <h1 className="mt-2 text-sm font-semibold tracking-tight">
-            PoolSight AI
+          <img
+            src="/Calimingo.png"
+            alt="Calimingo"
+            className="h-8 w-8 rounded-lg object-contain"
+          />
+          <h1 className="mt-2 text-sm font-extrabold tracking-tight">
+            Pool<span className="text-sky-400">Sight</span>AI
           </h1>
           <p className="mt-0.5 text-[11px] text-slate-400">
-            Executive deck & tracker
+            Construction progress intelligence
           </p>
         </div>
         <nav
@@ -2129,6 +2294,18 @@ export default function PoolsightApp({ initialTab } = {}) {
           aria-label="Main navigation"
         >
           {NAV.map((item) => {
+            if (item.href) {
+              return (
+                <a
+                  key={item.id}
+                  href={item.href}
+                  className="flex w-full items-center gap-2 rounded-md px-4 py-2 text-left text-[13px] font-medium text-slate-300 transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                >
+                  <span aria-hidden="true">{item.icon}</span>
+                  <span>{item.label}</span>
+                </a>
+              );
+            }
             const active = tab === item.id;
             return (
               <button
@@ -2157,9 +2334,8 @@ export default function PoolsightApp({ initialTab } = {}) {
         {tab === "welcome" && <WelcomeTab />}
         {tab === "present" && <PresentationTab />}
         {tab === "plan" && <PlanTab />}
-        {tab === "demo" && <DemoTab />}
         {tab === "trello" && <TrelloDashboard />}
-        {tab === "cost" && <CostTab />}
+        {tab === "projects" && <ProjectsPage />}
       </main>
     </div>
   );

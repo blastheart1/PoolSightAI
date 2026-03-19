@@ -33,3 +33,14 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+# Local docs / Cursor workspace artifacts
+plan.md
+.cursorrules
+
+# Test fixtures
+test-files/
+
+# Local planning docs (keep README.md)
+*.md
+!README.md
