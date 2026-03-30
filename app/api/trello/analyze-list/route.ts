@@ -6,7 +6,7 @@ import {
 } from "../../../../lib/trello";
 import sharp from "sharp";
 
-const MAX_IMAGES = 10;
+const MAX_IMAGES = 20;
 type EcoMode = "off" | "balanced" | "aggressive";
 
 /**
@@ -36,7 +36,7 @@ async function fetchImageViaProxy(
 
 function parseEcoMode(value: unknown): EcoMode {
   if (value === "balanced" || value === "aggressive" || value === "off") return value;
-  return "aggressive";
+  return "balanced";
 }
 
 async function optimizeImageIfNeeded(
@@ -191,7 +191,7 @@ export async function POST(request: Request) {
   const analyzeUrl = `${base}/api/analyze`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120_000);
+  const timeoutId = setTimeout(() => controller.abort(), 180_000);
 
   let analyzeRes: Response;
   let analyzeJson: Record<string, unknown> = {};

@@ -480,7 +480,7 @@ export default function ListOverviewPage({
   const [savingReport, setSavingReport] = useState(false);
   const [saveReportError, setSaveReportError] = useState("");
   const [pmUpdate, setPmUpdate] = useState("");
-  const ecoMode: EcoMode = "aggressive";
+  const ecoMode = "balanced" as EcoMode;
   const [downloadError, setDownloadError] = useState("");
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [downloadThrottleHint, setDownloadThrottleHint] = useState(false);

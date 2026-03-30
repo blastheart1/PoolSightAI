@@ -82,8 +82,8 @@ const MAX_SECTIONS = 20;
 const MAX_ROWS_PER_SECTION = 50;
 const MAX_KEY_ACTIONS = 30;
 const MAX_STRING_LENGTH = 2000;
-/** Cap images to stay under typical org rate limits (e.g. 10k input tokens/min). */
-const MAX_IMAGES = 10;
+/** Cap images per request; Sonnet handles larger context than Haiku. */
+const MAX_IMAGES = 20;
 /** Max line item labels sent in the prompt; each truncated to this length to limit tokens. */
 const MAX_LINE_ITEM_LABEL_LENGTH = 150;
 const MAX_LINE_ITEM_LABELS = 35;
@@ -476,11 +476,11 @@ function extractToolInput(
   return null;
 }
 
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = "claude-sonnet-4-6-20250514";
 const RETRY_PROMPT_SUFFIX_TOOL_MISSING =
   "\n\nIMPORTANT: You must respond by calling the reconcile_billing tool with your analysis. Do not respond with plain text or JSON in the message body.";
 const RETRY_PROMPT_SUFFIX_INCOMPLETE =
-  "\n\nIMPORTANT: Your previous response called the tool but omitted required fields. You MUST call reconcile_billing again with a COMPLETE object including ALL required top-level fields (project, as_of_date, confidence, image_coverage_note, summary, sections, key_actions). Each row MUST include: line_item, current_percent, suggested_percent, suggested_percent_range, status, photo_supported, and notes. Include at least three key_actions.";
+  "\n\nIMPORTANT: Your previous response called the tool but omitted required fields. You MUST call reconcile_billing again with a COMPLETE object including ALL required top-level fields (project, as_of_date, confidence, image_coverage_note, summary, sections, key_actions). Each row MUST include: line_item, current_percent, suggested_percent, suggested_percent_range, status, photo_supported, and notes. Include at least three key_actions. If contract line items were provided above, you MUST produce exactly one row per contract line item using the exact label text. Do not omit any contract line items.";
 
 /** Tool output is valid for display only if it has non-empty sections and key_actions. */
 function isToolInputComplete(input: Record<string, unknown>): boolean {
@@ -526,14 +526,42 @@ function buildPrompt(opts: {
   isRetry?: boolean;
   retryReason?: "tool_missing" | "incomplete";
 }): string {
-  const { pmUpdate, isRetry, retryReason } = opts;
+  const { projectName, today, pmUpdate, lineItemLabels, isRetry, retryReason } = opts;
+
+  const hasContractItems = lineItemLabels.length > 0;
+
+  const contractSection = hasContractItems
+    ? `
+CONTRACT LINE ITEMS (from the signed contract)
+
+The following are the exact contract line items for this project. You MUST produce exactly one row per item, using the exact label text as the line_item value. Do not rename, merge, split, or omit any of these items. Do not invent additional rows beyond these items.
+
+${lineItemLabels.map((label, i) => `${i + 1}. ${label}`).join("\n")}
+
+---
+`
+    : "";
+
+  const noContractFallback = !hasContractItems
+    ? `
+WHEN NO CONTRACT LINE ITEMS ARE PROVIDED
+
+Still produce a full analysis. Create sections and rows for every scope of work visible in the photos (shell, plumbing, electrical, decking, tile, equipment, etc.). Apply the sequencing rules to infer what is likely complete even if not directly visible, and flag all inferences explicitly in the notes using the INFERRED prefix.
+
+---
+`
+    : "";
+
   return `
 You are a senior pool construction billing analyst. Your output will be used to update progress billing for contract line items. Provide full, detailed analysis so the project manager can justify each billing change.
+
+Project: ${projectName}
+Analysis date: ${today}
 
 Using the site photos and (if provided) the PM update text, produce a billing reconciliation by calling the reconcile_billing tool.
 
 ---
-
+${contractSection}
 STEP 1 — IMAGE ANALYSIS (internal reasoning)
 
 Before producing any billing output, carefully examine every provided photo. For each image:
@@ -548,6 +576,17 @@ Before producing any billing output, carefully examine every provided photo. For
 - Note what is NOT visible or cannot be confirmed from the images.
 
 Do not assume work is complete if it is not clearly visible. If a scope is partially visible, note what portion can be confirmed.
+
+---
+
+STEP 1.5 — PHOTO-TO-SCOPE MAPPING (internal reasoning)
+
+Before producing billing rows, explicitly map each provided image to the contract line items it provides evidence for. For each image, note:
+- Image position (e.g., "Image 1", "Image 3")
+- Which contract line item(s) it informs
+- What evidence it provides (completion state, quality, visible scope)
+
+Complete this mapping internally before Step 2. It ensures every billing row's notes field can reference specific images accurately.
 
 ---
 
@@ -592,6 +631,8 @@ Tool call schema:
 ---
 
 FIELD DEFINITIONS
+
+current_percent: The percentage previously billed and approved in the billing system. This is provided as context only — it represents what has already been invoiced. Do not assume this value is correct. Assess actual completion from photos and PM input, then set suggested_percent accordingly. If current_percent exceeds what the photos support, set status to "hold" or "verify" and explain in notes.
 
 image_coverage_note: Describe how many images were provided, what scopes they cover, and flag any scopes that are missing or unconfirmable.
 
@@ -643,6 +684,12 @@ If images show a later phase, you may infer earlier phases are complete — but 
 
 ---
 
+INFERENCE TRANSPARENCY
+
+Any suggested_percent for a scope that is NOT directly visible in the provided photos must be explicitly flagged in the notes field as an inference. Use this format: "INFERRED: [reason]." For example: "INFERRED: Plumbing rough-in is not visible in any photo. Percentage inferred from shell completion visible in Image 2 and construction sequencing logic." This applies to all sequencing-based inferences and PM-update-only claims.
+
+---
+
 CONFIDENCE RULES
 
 Set confidence based on how well the photos cover the billable scopes:
@@ -651,13 +698,7 @@ Set confidence based on how well the photos cover the billable scopes:
 - "low": Photos are limited, blurry, or cover only a small portion of the work.
 
 ---
-
-WHEN NO CONTRACT LINE ITEMS ARE PROVIDED
-
-Still produce a full analysis. Create sections and rows for every scope of work visible in the photos (shell, plumbing, electrical, decking, tile, equipment, etc.). Apply the sequencing rules to infer what is likely complete even if not directly visible, and flag all inferences explicitly in the notes.
-
----
-
+${noContractFallback}
 PM UPDATE (optional):
 ${pmUpdate || "<none provided>"}
 ${isRetry && retryReason === "incomplete" ? RETRY_PROMPT_SUFFIX_INCOMPLETE : isRetry ? RETRY_PROMPT_SUFFIX_TOOL_MISSING : ""}
@@ -760,7 +801,7 @@ export async function POST(request: Request) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const payload = {
         model: MODEL,
-        max_tokens: 4096,
+        max_tokens: 8192,
         temperature: 0,
         tools: [RECONCILE_BILLING_TOOL],
         tool_choice: { type: "tool" as const, name: RECONCILE_BILLING_TOOL_NAME },
