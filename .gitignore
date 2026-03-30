@@ -41,6 +41,9 @@ plan.md
 # Test fixtures
 test-files/
 
+# Temporary files
+tmp/
+
 # Local planning docs (keep README.md)
 *.md
 !README.md

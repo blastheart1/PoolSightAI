@@ -5,6 +5,9 @@ import Link from "next/link";
 import { Dialog, DialogPanel, DialogTitle } from "@headlessui/react";
 import { ArrowLeftIcon, DocumentTextIcon, PencilSquareIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { ContractItemsTable } from "../../../components/ContractItemsTable";
+import { TrelloListPicker, type TrelloLinkedList } from "../../../components/TrelloListPicker";
+import { TrelloImagePicker, type SelectedTrelloImage } from "../../../components/TrelloImagePicker";
+import { SuggestionReviewTable, type LineItemResult } from "../../../components/SuggestionReviewTable";
 import type { OrderItem } from "../../../lib/contractTypes";
 
 interface ContractItemRow {
@@ -41,6 +44,7 @@ interface ProjectDetail {
   createdAt: string;
   contractItems: ContractItemRow[];
   selectedLineItemIds: string[];
+  trelloLinkedLists: TrelloLinkedList[];
 }
 
 interface AnalysisSummary {
@@ -51,6 +55,10 @@ interface AnalysisSummary {
   sectionCount?: number;
   overallProgress?: number | null;
   label?: string;
+  imageSource?: string;
+  trelloListId?: string | null;
+  totalSuggestions?: number;
+  appliedCount?: number;
 }
 
 type RecoRow = {
@@ -430,8 +438,12 @@ export default function ProjectDetailPage({
   const [analysisResult, setAnalysisResult] = useState<unknown>(null);
   const [analysisError, setAnalysisError] = useState("");
   const [savingReport, setSavingReport] = useState(false);
+  const [savedEntryId, setSavedEntryId] = useState<string | null>(null);
+  const [savedLineItemResults, setSavedLineItemResults] = useState<LineItemResult[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [pmUpdate, setPmUpdate] = useState("");
+  const [imageSourceTab, setImageSourceTab] = useState<"upload" | "trello">("upload");
+  const [trelloImages, setTrelloImages] = useState<SelectedTrelloImage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parseFile, setParseFile] = useState<File | null>(null);
   const [parseUrl, setParseUrl] = useState("");
@@ -445,6 +457,7 @@ export default function ProjectDetailPage({
   const [openReportId, setOpenReportId] = useState<string | null>(null);
   const [reportDetail, setReportDetail] = useState<AnalysisResultShape | null>(null);
   const [reportDetailLoading, setReportDetailLoading] = useState(false);
+  const [reportLineItemResults, setReportLineItemResults] = useState<LineItemResult[]>([]);
   const [editingDetails, setEditingDetails] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -656,8 +669,10 @@ export default function ProjectDetailPage({
         } else {
           setReportDetail(null);
         }
+        setReportLineItemResults(Array.isArray(data.lineItemResults) ? data.lineItemResults : []);
       } catch {
         setReportDetail(null);
+        setReportLineItemResults([]);
       } finally {
         setReportDetailLoading(false);
       }
@@ -668,6 +683,7 @@ export default function ProjectDetailPage({
   const closeReport = useCallback(() => {
     setOpenReportId(null);
     setReportDetail(null);
+    setReportLineItemResults([]);
   }, []);
 
   const startEditingDetails = useCallback(() => {
@@ -732,10 +748,14 @@ export default function ProjectDetailPage({
           asOfDate: (analysisResult as { as_of_date?: string }).as_of_date ?? new Date().toISOString().split("T")[0],
           pmUpdate: pmUpdate || undefined,
           reconciliationResult: analysisResult,
+          imageSource: "upload",
           images: [],
         }),
       });
       if (!res.ok) throw new Error("Failed to save report");
+      const data = await res.json();
+      setSavedEntryId(data.id ?? null);
+      setSavedLineItemResults([]);
       setAnalysisResult(null);
       await loadAnalyses();
     } catch (e) {
@@ -745,7 +765,46 @@ export default function ProjectDetailPage({
     }
   };
 
+  const runTrelloAnalysis = async () => {
+    if (!id || !project || trelloImages.length === 0) {
+      setAnalysisError("Select at least one image from a Trello list.");
+      return;
+    }
+    const linkedList = project.trelloLinkedLists[0];
+    if (!linkedList) {
+      setAnalysisError("No Trello list linked to this project.");
+      return;
+    }
+    setAnalysisLoading(true);
+    setAnalysisError("");
+    setAnalysisResult(null);
+    setSavedEntryId(null);
+    setSavedLineItemResults([]);
+    try {
+      const res = await fetch(`/api/projects/${id}/trello-analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trelloListId: linkedList.listId,
+          imageUrls: trelloImages.map((i) => i.url),
+          pmUpdate: pmUpdate || undefined,
+          ecoMode: "balanced",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Analysis failed");
+      setAnalysisResult(data.analysisResult);
+      setSavedEntryId(data.entryId ?? null);
+      await loadAnalyses();
+    } catch (e) {
+      setAnalysisError(e instanceof Error ? e.message : "Analysis failed");
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
   const projectName = project?.name ?? "Project";
+  const trelloLinkedLists = project?.trelloLinkedLists ?? [];
   const trelloUrls = project?.trelloLinks
     ? project.trelloLinks
         .split(/[\n,]+/)
@@ -774,7 +833,21 @@ export default function ProjectDetailPage({
               {project?.city != null ? `, ${project.city}` : ""}
             </p>
           ) : null}
-          {trelloUrls.length > 0 && (
+          {trelloLinkedLists.length > 0 && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="text-xs text-slate-400">Trello:</span>
+              {trelloLinkedLists.map((link) => (
+                <span
+                  key={link.id}
+                  className="inline-flex items-center rounded-full border border-sky-700/50 bg-sky-900/40 px-2.5 py-0.5 text-xs font-medium text-sky-300"
+                >
+                  {link.listName ?? link.listId}
+                  {link.boardName ? ` · ${link.boardName}` : ""}
+                </span>
+              ))}
+            </p>
+          )}
+          {trelloLinkedLists.length === 0 && trelloUrls.length > 0 && (
             <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
               <span className="text-slate-400">Trello:</span>
               {trelloUrls.map((href, i) => (
@@ -923,22 +996,60 @@ export default function ProjectDetailPage({
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold tracking-wide text-slate-900">AI Analysis</h2>
             <p className="mt-2 text-sm text-slate-600">
-              Upload 1–5 site photos and optional PM update. Select line items above to align the AI report.
+              Upload site photos or select from a linked Trello list. Select line items above to align the AI report.
             </p>
-            <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Site photos
-            </label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-              className="mt-2 block w-full text-sm text-slate-600 file:mr-4 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:font-medium file:text-slate-700"
-            />
-            {files.length > 0 && (
-              <p className="mt-1 text-xs text-slate-500">{files.length} file(s) selected</p>
+
+            {/* Image source tabs */}
+            {trelloLinkedLists.length > 0 && (
+              <div className="mt-4 flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 w-fit">
+                {(["upload", "trello"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => {
+                      setImageSourceTab(tab);
+                      setAnalysisError("");
+                    }}
+                    className={[
+                      "rounded-md px-4 py-1.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500",
+                      imageSourceTab === tab
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700",
+                    ].join(" ")}
+                  >
+                    {tab === "upload" ? "Upload Photos" : "From Trello"}
+                  </button>
+                ))}
+              </div>
             )}
+
+            {imageSourceTab === "upload" || trelloLinkedLists.length === 0 ? (
+              <>
+                <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Site photos
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+                  className="mt-2 block w-full text-sm text-slate-600 file:mr-4 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:font-medium file:text-slate-700"
+                />
+                {files.length > 0 && (
+                  <p className="mt-1 text-xs text-slate-500">{files.length} file(s) selected</p>
+                )}
+              </>
+            ) : (
+              <div className="mt-4">
+                <TrelloImagePicker
+                  linkedLists={trelloLinkedLists}
+                  selectedImages={trelloImages}
+                  onSelectionChange={setTrelloImages}
+                />
+              </div>
+            )}
+
             <label htmlFor="pm-update" className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               PM update (optional)
             </label>
@@ -951,24 +1062,52 @@ export default function ProjectDetailPage({
               placeholder="e.g. Gunite cure complete, tile scheduled next week"
             />
             <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={runAnalysis}
-                disabled={analysisLoading || files.length === 0}
-                className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
-              >
-                {analysisLoading ? "Analyzing…" : "Analyze"}
-              </button>
+              {imageSourceTab === "upload" || trelloLinkedLists.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={runAnalysis}
+                  disabled={analysisLoading || files.length === 0}
+                  className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+                >
+                  {analysisLoading ? "Analyzing…" : "Analyze"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={runTrelloAnalysis}
+                  disabled={analysisLoading || trelloImages.length === 0}
+                  className="rounded-lg bg-sky-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+                >
+                  {analysisLoading
+                    ? "Analyzing…"
+                    : `Analyze ${trelloImages.length} image${trelloImages.length !== 1 ? "s" : ""}`}
+                </button>
+              )}
             </div>
             {analysisError && (
               <p className="mt-2 text-sm text-red-600">{analysisError}</p>
             )}
             {analysisResult != null ? (
-              <AnalysisResultDisplay
-                result={analysisResult as AnalysisResultShape}
-                onSaveReport={saveReport}
-                savingReport={savingReport}
-              />
+              <>
+                <AnalysisResultDisplay
+                  result={analysisResult as AnalysisResultShape}
+                  onSaveReport={saveReport}
+                  savingReport={savingReport}
+                  showSaveButton={savedEntryId == null}
+                />
+                {savedEntryId != null && (
+                  <p className="mt-2 text-xs text-emerald-700">
+                    Analysis saved automatically.
+                  </p>
+                )}
+                <SuggestionReviewTable
+                  projectId={id!}
+                  contractItems={project?.contractItems ?? []}
+                  analysisResult={analysisResult as AnalysisResultShape}
+                  lineItemResults={savedLineItemResults.length > 0 ? savedLineItemResults : undefined}
+                  onApplied={() => { load(); loadAnalyses(); }}
+                />
+              </>
             ) : null}
           </section>
 
@@ -990,8 +1129,26 @@ export default function ProjectDetailPage({
                       aria-label={`Open report: ${a.label ?? a.asOfDate}`}
                     >
                       <DocumentTextIcon className="h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <span className="min-w-0 flex-1 text-sm font-medium text-slate-900">
-                        {a.label ?? `${a.asOfDate} · ${a.confidence ?? "—"}`}
+                      <span className="min-w-0 flex-1 space-y-0.5">
+                        <span className="block text-sm font-medium text-slate-900">
+                          {a.label ?? `${a.asOfDate} · ${a.confidence ?? "—"}`}
+                        </span>
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          {a.imageSource === "trello" ? (
+                            <span className="inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
+                              Trello
+                            </span>
+                          ) : (
+                            <span className="inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                              Upload
+                            </span>
+                          )}
+                          {a.totalSuggestions != null && a.totalSuggestions > 0 && (
+                            <span className="inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                              {a.appliedCount ?? 0}/{a.totalSuggestions} applied
+                            </span>
+                          )}
+                        </span>
                       </span>
                       <span className="text-xs text-slate-500">View</span>
                     </button>
@@ -1059,8 +1216,22 @@ export default function ProjectDetailPage({
                     <input id="edit-orderGrandTotal" type="text" value={editForm.orderGrandTotal} onChange={(e) => setEditForm((f) => ({ ...f, orderGrandTotal: e.target.value }))} placeholder="e.g. 43000" className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600" />
                   </div>
                   <div>
-                    <label htmlFor="edit-trelloLinks" className="block text-xs font-semibold uppercase tracking-wide text-slate-600">Trello links</label>
-                    <textarea id="edit-trelloLinks" value={editForm.trelloLinks} onChange={(e) => setEditForm((f) => ({ ...f, trelloLinks: e.target.value }))} rows={3} placeholder="One URL per line or comma-separated" className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600" />
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      Linked Trello lists
+                    </label>
+                    <div className="mt-1">
+                      <TrelloListPicker
+                        projectId={id!}
+                        linkedLists={project?.trelloLinkedLists ?? []}
+                        onLinksChange={load}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="edit-trelloLinks" className="block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Legacy Trello URLs (deprecated)
+                    </label>
+                    <textarea id="edit-trelloLinks" value={editForm.trelloLinks} onChange={(e) => setEditForm((f) => ({ ...f, trelloLinks: e.target.value }))} rows={2} placeholder="One URL per line or comma-separated" className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600" />
                   </div>
                   <div className="flex flex-wrap gap-2 pt-2">
                     <button type="button" onClick={saveDetails} disabled={savingDetails} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2">
@@ -1101,12 +1272,21 @@ export default function ProjectDetailPage({
                   {reportDetailLoading ? (
                     <p className="text-sm text-slate-500">Loading report…</p>
                   ) : reportDetail ? (
-                    <AnalysisResultDisplay
-                      result={reportDetail}
-                      onSaveReport={() => {}}
-                      savingReport={false}
-                      showSaveButton={false}
-                    />
+                    <>
+                      <AnalysisResultDisplay
+                        result={reportDetail}
+                        onSaveReport={() => {}}
+                        savingReport={false}
+                        showSaveButton={false}
+                      />
+                      <SuggestionReviewTable
+                        projectId={id!}
+                        contractItems={project?.contractItems ?? []}
+                        analysisResult={reportDetail}
+                        lineItemResults={reportLineItemResults.length > 0 ? reportLineItemResults : undefined}
+                        onApplied={() => { load(); loadAnalyses(); }}
+                      />
+                    </>
                   ) : openReportId ? (
                     <p className="text-sm text-slate-500">Could not load this report.</p>
                   ) : null}

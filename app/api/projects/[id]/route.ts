@@ -4,6 +4,7 @@ import {
   projects,
   projectContractItems,
   projectSelectedItems,
+  projectTrelloLinks,
 } from "../../../../lib/db/schema";
 import { eq } from "drizzle-orm";
 
@@ -41,10 +42,17 @@ export async function GET(
       .where(eq(projectSelectedItems.projectId, id));
     const selectedLineItemIds = selectedRows.map((r) => r.contractItemId);
 
+    const trelloLinkedLists = await db
+      .select()
+      .from(projectTrelloLinks)
+      .where(eq(projectTrelloLinks.projectId, id))
+      .orderBy(projectTrelloLinks.createdAt);
+
     return NextResponse.json({
       ...project,
       contractItems,
       selectedLineItemIds,
+      trelloLinkedLists,
     });
   } catch (err) {
     console.error("[GET /api/projects/[id]]", err);
@@ -148,11 +156,17 @@ export async function PATCH(
       .select({ contractItemId: projectSelectedItems.contractItemId })
       .from(projectSelectedItems)
       .where(eq(projectSelectedItems.projectId, id));
+    const trelloLinkedLists = await db
+      .select()
+      .from(projectTrelloLinks)
+      .where(eq(projectTrelloLinks.projectId, id))
+      .orderBy(projectTrelloLinks.createdAt);
 
     return NextResponse.json({
       ...updated,
       contractItems,
       selectedLineItemIds: selectedRows.map((r) => r.contractItemId),
+      trelloLinkedLists,
     });
   } catch (err) {
     console.error("[PATCH /api/projects/[id]]", err);

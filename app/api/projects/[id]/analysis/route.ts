@@ -35,6 +35,10 @@ export async function POST(
         ? body.asOfDate
         : new Date().toISOString().split("T")[0];
     const pmUpdate = typeof body.pmUpdate === "string" ? body.pmUpdate : null;
+    const imageSource =
+      typeof body.imageSource === "string" ? body.imageSource : "upload";
+    const trelloListId =
+      typeof body.trelloListId === "string" ? body.trelloListId || null : null;
     const reconciliationResult = body.reconciliationResult ?? null;
     if (!reconciliationResult || typeof reconciliationResult !== "object") {
       return NextResponse.json(
@@ -50,6 +54,8 @@ export async function POST(
         projectId,
         asOfDate,
         pmUpdate,
+        imageSource,
+        trelloListId,
       })
       .returning();
     if (!entry) {
@@ -86,27 +92,35 @@ export async function POST(
     const sections = reconciliationResult.sections;
     if (Array.isArray(sections)) {
       const contractItemRows = await db
-        .select({ id: projectContractItems.id, productService: projectContractItems.productService })
+        .select({
+          id: projectContractItems.id,
+          productService: projectContractItems.productService,
+          progressOverallPct: projectContractItems.progressOverallPct,
+        })
         .from(projectContractItems)
         .where(eq(projectContractItems.projectId, projectId));
       const byProductService = new Map(
-        contractItemRows.map((r) => [r.productService?.toLowerCase().trim() ?? "", r.id])
+        contractItemRows.map((r) => [
+          r.productService?.toLowerCase().trim() ?? "",
+          { id: r.id, progressBefore: r.progressOverallPct },
+        ])
       );
       for (const section of sections) {
         const sectionId = section.id ?? "";
         const rows = section.rows ?? [];
         for (const row of rows) {
           const lineItem = row.line_item ?? "";
-          const contractItemId = byProductService.get(lineItem.toLowerCase().trim()) ?? null;
+          const match = byProductService.get(lineItem.toLowerCase().trim());
           await db.insert(aiAnalysisResultLineItems).values({
             analysisResultId: result.id,
-            contractItemId,
+            contractItemId: match?.id ?? null,
             sectionId,
             lineItem,
             currentPercent: row.current_percent ?? null,
             suggestedPercent: row.suggested_percent ?? null,
             status: row.status ?? null,
             notes: row.notes ?? null,
+            progressBefore: match?.progressBefore ?? null,
           });
         }
       }

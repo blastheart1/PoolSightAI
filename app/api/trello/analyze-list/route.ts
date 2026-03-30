@@ -4,60 +4,14 @@ import {
   isTrelloConfigured,
   isImageAttachment,
 } from "../../../../lib/trello";
-import sharp from "sharp";
+import {
+  parseEcoMode,
+  fetchAndOptimizeImages,
+  getBaseOrigin,
+  type EcoMode,
+} from "../../../../lib/trello-images";
 
 const MAX_IMAGES = 20;
-type EcoMode = "off" | "balanced" | "aggressive";
-
-/**
- * Fetch image via our proxy so Trello attachment URLs get key/token auth.
- * Proxy is same-origin (base + /api/trello/proxy-image?url=...).
- */
-async function fetchImageViaProxy(
-  baseOrigin: string,
-  imageUrl: string,
-  fallbackMime: string = "image/jpeg"
-): Promise<{ buf: Buffer; mimeType: string } | null> {
-  try {
-    const proxyUrl = `${baseOrigin}/api/trello/proxy-image?url=${encodeURIComponent(imageUrl)}`;
-    const res = await fetch(proxyUrl, { cache: "no-store" });
-    if (!res.ok) return null;
-    const arr = await res.arrayBuffer();
-    const buf = Buffer.from(arr);
-    const contentType = res.headers.get("content-type");
-    const mimeType =
-      contentType?.split(";")[0]?.trim() || fallbackMime || "image/jpeg";
-    if (!mimeType.startsWith("image/")) return null;
-    return { buf, mimeType };
-  } catch {
-    return null;
-  }
-}
-
-function parseEcoMode(value: unknown): EcoMode {
-  if (value === "balanced" || value === "aggressive" || value === "off") return value;
-  return "balanced";
-}
-
-async function optimizeImageIfNeeded(
-  buf: Buffer,
-  ecoMode: EcoMode
-): Promise<{ buf: Buffer; mimeType: string; optimized: boolean }> {
-  if (ecoMode === "off") return { buf, mimeType: "image/jpeg", optimized: false };
-  const maxDim = ecoMode === "aggressive" ? 768 : 1024;
-  const quality = ecoMode === "aggressive" ? 45 : 60;
-  try {
-    const out = await sharp(buf)
-      .rotate()
-      .resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality, mozjpeg: true })
-      .toBuffer();
-    return { buf: out, mimeType: "image/jpeg", optimized: true };
-  } catch {
-    // Fall back to original bytes if optimization fails.
-    return { buf, mimeType: "image/jpeg", optimized: false };
-  }
-}
 
 /**
  * POST: run AI analysis on images from a Trello list.
@@ -146,35 +100,14 @@ export async function POST(request: Request) {
     );
   }
 
-  // Use the same origin as the incoming request (for proxy and analyze calls).
-  let base: string;
-  try {
-    const reqUrl = new URL(request.url);
-    base = reqUrl.origin;
-  } catch {
-    base = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_APP_ORIGIN || "http://localhost:3000";
-  }
+  const base = getBaseOrigin(request.url);
 
-  // Fetch each image via our proxy so Trello attachment URLs get key/token auth.
-  const toFetch = imageAttachments.slice(0, MAX_IMAGES);
-  const images: { b64: string; mimeType: string }[] = [];
-  let totalOriginalBytes = 0;
-  let totalFinalBytes = 0;
-  for (const item of toFetch) {
-    const mime =
-      item.mimeType && item.mimeType.startsWith("image/") ? item.mimeType : "image/jpeg";
-    const fetched = await fetchImageViaProxy(base, item.url, mime);
-    if (!fetched) continue;
-    totalOriginalBytes += fetched.buf.byteLength;
-    const optimized = await optimizeImageIfNeeded(fetched.buf, ecoMode);
-    totalFinalBytes += optimized.buf.byteLength;
-    images.push({
-      b64: optimized.buf.toString("base64"),
-      mimeType: optimized.mimeType,
-    });
-  }
+  const { images, totalOriginalBytes, totalFinalBytes } = await fetchAndOptimizeImages(
+    imageAttachments,
+    base,
+    ecoMode,
+    MAX_IMAGES
+  );
 
   if (images.length === 0) {
     return new Response(

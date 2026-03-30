@@ -4,6 +4,7 @@ import {
   projects,
   aiAnalysisEntries,
   aiAnalysisResults,
+  aiAnalysisResultLineItems,
 } from "../../../../../../lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
@@ -50,8 +51,14 @@ export async function GET(
       .from(aiAnalysisResults)
       .where(eq(aiAnalysisResults.analysisId, entry.id));
 
-    const reconciliationResult =
-      resultRow?.reconciliationResult ?? null;
+    const reconciliationResult = resultRow?.reconciliationResult ?? null;
+
+    const lineItemResults = resultRow
+      ? await db
+          .select()
+          .from(aiAnalysisResultLineItems)
+          .where(eq(aiAnalysisResultLineItems.analysisResultId, resultRow.id))
+      : [];
 
     return NextResponse.json({
       id: entry.id,
@@ -59,7 +66,10 @@ export async function GET(
       asOfDate: entry.asOfDate,
       pmUpdate: entry.pmUpdate,
       createdAt: entry.createdAt,
+      imageSource: entry.imageSource ?? "upload",
+      trelloListId: entry.trelloListId ?? null,
       reconciliationResult,
+      lineItemResults,
     });
   } catch (err) {
     console.error("[GET /api/projects/[id]/analyses/[entryId]]", err);

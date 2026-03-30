@@ -84,6 +84,29 @@ export const projectContractItems = pgTable(
   })
 );
 
+// Structured Trello list links for a project (replaces free-text trelloLinks field)
+export const projectTrelloLinks = pgTable(
+  "project_trello_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    listId: text("list_id").notNull(),
+    listName: text("list_name"),
+    boardId: text("board_id"),
+    boardName: text("board_name"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    projectIdIdx: index("project_trello_links_project_id_idx").on(table.projectId),
+    uniqueProjectList: unique("project_trello_links_project_list_unique").on(
+      table.projectId,
+      table.listId
+    ),
+  })
+);
+
 // Which contract line items are selected for progress billing / AI analysis
 export const projectSelectedItems = pgTable(
   "project_selected_items",
@@ -116,6 +139,8 @@ export const aiAnalysisEntries = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     asOfDate: varchar("as_of_date", { length: 10 }).notNull(),
     pmUpdate: text("pm_update"),
+    trelloListId: text("trello_list_id"),
+    imageSource: varchar("image_source", { length: 20 }), // "upload" | "trello"
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
@@ -170,6 +195,9 @@ export const aiAnalysisResultLineItems = pgTable(
     suggestedPercent: varchar("suggested_percent", { length: 20 }),
     status: varchar("status", { length: 20 }),
     notes: text("notes"),
+    progressBefore: decimal("progress_before", { precision: 10, scale: 4 }),
+    appliedAt: timestamp("applied_at"),
+    appliedProgressPct: decimal("applied_progress_pct", { precision: 10, scale: 4 }),
   },
   (table) => ({
     analysisResultIdIdx: index(

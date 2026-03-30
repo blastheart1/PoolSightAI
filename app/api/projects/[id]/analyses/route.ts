@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "../../../../../lib/db";
-import { projects, aiAnalysisEntries, aiAnalysisResults } from "../../../../../lib/db/schema";
+import {
+  projects,
+  aiAnalysisEntries,
+  aiAnalysisResults,
+  aiAnalysisResultLineItems,
+} from "../../../../../lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 
 export const runtime = "nodejs";
@@ -67,6 +72,21 @@ export async function GET(
         if (confidence) parts.push(confidence);
         const label = parts.join(" · ");
 
+        // Count applied vs total suggestions for this entry
+        let totalSuggestions = 0;
+        let appliedCount = 0;
+        if (res) {
+          const lineItemRows = await database
+            .select({
+              id: aiAnalysisResultLineItems.id,
+              appliedAt: aiAnalysisResultLineItems.appliedAt,
+            })
+            .from(aiAnalysisResultLineItems)
+            .where(eq(aiAnalysisResultLineItems.analysisResultId, res.id));
+          totalSuggestions = lineItemRows.length;
+          appliedCount = lineItemRows.filter((r) => r.appliedAt != null).length;
+        }
+
         return {
           id: entry.id,
           asOfDate: entry.asOfDate,
@@ -75,6 +95,10 @@ export async function GET(
           sectionCount,
           overallProgress,
           label,
+          imageSource: entry.imageSource ?? "upload",
+          trelloListId: entry.trelloListId ?? null,
+          totalSuggestions,
+          appliedCount,
         };
       })
     );
