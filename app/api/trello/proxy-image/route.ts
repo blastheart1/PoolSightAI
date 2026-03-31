@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { isTrelloConfigured } from "../../../../lib/trello";
 
 const TRELLO_API_KEY = process.env.TRELLO_API_KEY?.trim();
@@ -85,6 +86,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const rawUrl = searchParams.get("url");
   const download = searchParams.get("download") === "1";
+  const thumb = searchParams.get("thumb") === "1";
   const filenameParam = searchParams.get("filename");
   if (!rawUrl || typeof rawUrl !== "string") {
     return new Response(
@@ -159,13 +161,32 @@ export async function GET(request: Request) {
     );
   }
 
-  const body = await res.arrayBuffer();
+  const rawBody = await res.arrayBuffer();
+
+  // For thumbnail requests, resize to 240px wide at 60% quality to save bandwidth.
+  // AI analysis always uses the original URL directly, so this only affects the picker UI.
+  let responseBlob: Blob = new Blob([rawBody], { type: contentType });
+  let responseContentType = contentType;
+  if (thumb && !download) {
+    try {
+      const resized = await sharp(Buffer.from(rawBody))
+        .resize({ width: 240, withoutEnlargement: true })
+        .jpeg({ quality: 60 })
+        .toBuffer();
+      const ab = resized.buffer.slice(resized.byteOffset, resized.byteOffset + resized.byteLength) as ArrayBuffer;
+      responseBlob = new Blob([ab], { type: "image/jpeg" });
+      responseContentType = "image/jpeg";
+    } catch {
+      // Fall back to original if resize fails
+    }
+  }
+
   const filename = download ? sanitizeFilename(filenameParam || "image.jpg") : "";
-  return new Response(body, {
+  return new Response(responseBlob, {
     status: 200,
     headers: {
-      "Content-Type": contentType,
-      "Cache-Control": "private, no-store",
+      "Content-Type": responseContentType,
+      "Cache-Control": thumb ? "private, max-age=300" : "private, no-store",
       ...(download
         ? { "Content-Disposition": `attachment; filename="${filename}"` }
         : {}),

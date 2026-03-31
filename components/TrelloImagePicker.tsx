@@ -39,6 +39,7 @@ export function TrelloImagePicker({
   const [cards, setCards] = useState<TrelloCard[]>([]);
   const [cardsLoading, setCardsLoading] = useState(false);
   const [cardsError, setCardsError] = useState("");
+  const [page, setPage] = useState(0);
 
   const selectedUrls = new Set(selectedImages.map((i) => i.url));
 
@@ -64,7 +65,10 @@ export function TrelloImagePicker({
   }, []);
 
   useEffect(() => {
-    if (activeListId) loadCards(activeListId);
+    if (activeListId) {
+      loadCards(activeListId);
+      setPage(0);
+    }
   }, [activeListId, loadCards]);
 
   // Flatten all image attachments across all cards
@@ -80,6 +84,10 @@ export function TrelloImagePicker({
       })
       .map((a) => ({ url: a.url, cardName: card.name, mimeType: a.mimeType }))
   );
+
+  const PAGE_SIZE = 10;
+  const totalPages = Math.ceil(allImages.length / PAGE_SIZE);
+  const pagedImages = allImages.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const toggleImage = (img: SelectedTrelloImage) => {
     if (selectedUrls.has(img.url)) {
@@ -138,49 +146,74 @@ export function TrelloImagePicker({
       ) : allImages.length === 0 ? (
         <p className="text-sm text-slate-500">No images found in this list.</p>
       ) : (
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
-          {allImages.map((img, idx) => {
-            const isSelected = selectedUrls.has(img.url);
-            const isDisabled = !isSelected && selectedImages.length >= maxImages;
-            const thumbUrl = `/api/trello/proxy-image?url=${encodeURIComponent(img.url)}`;
-            return (
+        <>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
+            {pagedImages.map((img, idx) => {
+              const isSelected = selectedUrls.has(img.url);
+              const isDisabled = !isSelected && selectedImages.length >= maxImages;
+              const thumbUrl = `/api/trello/proxy-image?url=${encodeURIComponent(img.url)}&thumb=1`;
+              return (
+                <button
+                  key={`${img.url}-${idx}`}
+                  type="button"
+                  onClick={() => toggleImage(img)}
+                  disabled={isDisabled}
+                  title={img.cardName}
+                  className={[
+                    "relative aspect-square overflow-hidden rounded-lg border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500",
+                    isSelected
+                      ? "border-sky-500 ring-2 ring-sky-300"
+                      : "border-slate-200 hover:border-slate-400",
+                    isDisabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer",
+                  ].join(" ")}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={thumbUrl}
+                    alt={img.cardName}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                  {/* Fallback icon if image fails */}
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-100 opacity-0 [img:not([src])~&]:opacity-100">
+                    <PhotoIcon className="h-6 w-6 text-slate-400" aria-hidden />
+                  </div>
+                  {isSelected && (
+                    <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-[10px] font-bold text-white shadow">
+                      {selectedImages.findIndex((i) => i.url === img.url) + 1}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-1">
               <button
-                key={`${img.url}-${idx}`}
                 type="button"
-                onClick={() => toggleImage(img)}
-                disabled={isDisabled}
-                title={img.cardName}
-                className={[
-                  "relative aspect-square overflow-hidden rounded-lg border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500",
-                  isSelected
-                    ? "border-sky-500 ring-2 ring-sky-300"
-                    : "border-slate-200 hover:border-slate-400",
-                  isDisabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer",
-                ].join(" ")}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={thumbUrl}
-                  alt={img.cardName}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                  }}
-                />
-                {/* Fallback icon if image fails */}
-                <div className="absolute inset-0 flex items-center justify-center bg-slate-100 opacity-0 [img:not([src])~&]:opacity-100">
-                  <PhotoIcon className="h-6 w-6 text-slate-400" aria-hidden />
-                </div>
-                {isSelected && (
-                  <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-[10px] font-bold text-white shadow">
-                    {selectedImages.findIndex((i) => i.url === img.url) + 1}
-                  </span>
-                )}
+                ← Prev
               </button>
-            );
-          })}
-        </div>
+              <span className="text-xs text-slate-500">
+                {page + 1} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={page === totalPages - 1}
+                className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
