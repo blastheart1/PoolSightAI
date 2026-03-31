@@ -484,7 +484,7 @@ export default function ProjectDetailPage({
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/projects/${id}`);
+      const res = await fetch(`/api/projects/${id}`, { cache: "no-store" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? "Failed to load project");
@@ -501,10 +501,10 @@ export default function ProjectDetailPage({
   const refreshTrelloLinks = useCallback(async () => {
     if (!id) return;
     try {
-      const res = await fetch(`/api/projects/${id}/trello-links`);
+      const res = await fetch(`/api/projects/${id}/trello-links`, { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        setProject((p) => p ? { ...p, trelloLinkedLists: data } : null);
+        setProject((p) => p ? { ...p, trelloLinkedLists: Array.isArray(data) ? data : [] } : null);
       }
     } catch {
       // ignore — non-critical refresh
@@ -746,14 +746,17 @@ export default function ProjectDetailPage({
         }),
       });
       if (!res.ok) throw new Error("Failed to save project details");
-      await load();
+      // Use PATCH response directly — it includes fresh trelloLinkedLists from the DB,
+      // avoiding a second round-trip that could return stale cached data.
+      const patchData = await res.json();
+      setProject(patchData);
       setEditingDetails(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save details");
     } finally {
       setSavingDetails(false);
     }
-  }, [id, editForm, load]);
+  }, [id, editForm]);
 
   const saveReport = async () => {
     if (!id || !analysisResult || typeof analysisResult !== "object") return;
@@ -895,6 +898,20 @@ export default function ProjectDetailPage({
                 </span>
               ))}
             </p>
+          )}
+          {trelloLinkedLists.length === 0 && project != null && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={startEditingDetails}
+                className="inline-flex items-center gap-1.5 rounded-full border border-sky-700/40 bg-sky-900/30 px-3 py-1 text-xs font-medium text-sky-400 hover:bg-sky-900/50 hover:text-sky-300 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5" aria-hidden="true">
+                  <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
+                </svg>
+                Link Trello List
+              </button>
+            </div>
           )}
           {trelloLinkedLists.length === 0 && trelloUrls.length > 0 && (
             <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
