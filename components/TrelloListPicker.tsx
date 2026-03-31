@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { XMarkIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { XMarkIcon } from "@heroicons/react/24/outline";
 
 export interface TrelloLinkedList {
   id: string;
@@ -67,9 +67,8 @@ export function TrelloListPicker({ projectId, linkedLists, onLinksChange }: Trel
   const linkedIds = new Set(linkedLists.map((l) => l.listId));
   const availableLists = board?.lists.filter((l) => !linkedIds.has(l.id)) ?? [];
 
-  const handleLink = async () => {
-    if (!selectedListId) return;
-    const boardList = board?.lists.find((l) => l.id === selectedListId);
+  const linkList = async (listId: string) => {
+    const boardList = board?.lists.find((l) => l.id === listId);
     if (!boardList) return;
     setLinking(true);
     setLinkError("");
@@ -95,6 +94,15 @@ export function TrelloListPicker({ projectId, linkedLists, onLinksChange }: Trel
     } finally {
       setLinking(false);
     }
+  };
+
+  const handleSelectAndLink = (listId: string) => {
+    if (!listId) {
+      setSelectedListId("");
+      return;
+    }
+    setSelectedListId(listId);
+    linkList(listId);
   };
 
   const handleUnlink = async (linkId: string) => {
@@ -142,25 +150,17 @@ export function TrelloListPicker({ projectId, linkedLists, onLinksChange }: Trel
         <div className="flex items-center gap-2">
           <select
             value={selectedListId}
-            onChange={(e) => setSelectedListId(e.target.value)}
-            className="flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600"
+            onChange={(e) => handleSelectAndLink(e.target.value)}
+            disabled={linking}
+            className="flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600 disabled:opacity-50"
           >
-            <option value="">Select a list to link…</option>
+            <option value="">{linking ? "Linking…" : "Select a list to link…"}</option>
             {availableLists.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.name}
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            onClick={handleLink}
-            disabled={!selectedListId || linking}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-          >
-            <PlusIcon className="h-4 w-4" aria-hidden />
-            {linking ? "Linking…" : "Link"}
-          </button>
         </div>
       ) : linkedLists.length === 0 ? (
         <p className="text-xs text-slate-500">No available lists found on the current board.</p>
