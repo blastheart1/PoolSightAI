@@ -23,8 +23,11 @@ export async function fetchImageViaProxy(
     const arr = await res.arrayBuffer();
     const buf = Buffer.from(arr);
     const contentType = res.headers.get("content-type");
-    const mimeType = contentType?.split(";")[0]?.trim() || fallbackMime;
-    if (!mimeType.startsWith("image/")) return null;
+    const parsedMime = contentType?.split(";")[0]?.trim() || "";
+    // Some Trello image downloads are served as application/octet-stream.
+    // In those cases keep the bytes and fall back to the expected image mime.
+    const mimeType = parsedMime.startsWith("image/") ? parsedMime : fallbackMime;
+    if (!buf.byteLength) return null;
     return { buf, mimeType };
   } catch {
     return null;

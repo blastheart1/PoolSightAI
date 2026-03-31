@@ -70,6 +70,20 @@ function sanitizeFilename(name: string): string {
   return safe || "image.jpg";
 }
 
+function hasImageLikeExtension(urlOrPath: string): boolean {
+  const cleaned = urlOrPath.split("?")[0].toLowerCase();
+  return (
+    cleaned.endsWith(".jpg") ||
+    cleaned.endsWith(".jpeg") ||
+    cleaned.endsWith(".png") ||
+    cleaned.endsWith(".gif") ||
+    cleaned.endsWith(".webp") ||
+    cleaned.endsWith(".bmp") ||
+    cleaned.endsWith(".heic") ||
+    cleaned.endsWith(".avif")
+  );
+}
+
 /**
  * GET: proxy an image from a Trello attachment URL.
  * Adds TRELLO_API_KEY and TRELLO_API_TOKEN when the URL is from Trello so the server can fetch authenticated.
@@ -148,7 +162,14 @@ export async function GET(request: Request) {
   }
 
   const contentType = res.headers.get("content-type") || "application/octet-stream";
-  if (!contentType.startsWith("image/")) {
+  const contentDisposition = res.headers.get("content-disposition") || "";
+  const isImageContentType = contentType.startsWith("image/");
+  const looksLikeImageByName =
+    hasImageLikeExtension(targetUrl) || hasImageLikeExtension(contentDisposition);
+
+  // Trello attachment downloads may return application/octet-stream for images.
+  // Accept those when the URL/filename strongly suggests an image.
+  if (!isImageContentType && !looksLikeImageByName) {
     return new Response(
       JSON.stringify({ error: "URL did not return an image", contentType }),
       { status: 400, headers: { "Content-Type": "application/json" } }
