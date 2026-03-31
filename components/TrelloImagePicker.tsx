@@ -16,6 +16,21 @@ interface CardAttachment {
   name?: string;
 }
 
+function isTrelloHostedUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    return (
+      host === "api.trello.com" ||
+      host === "trello.com" ||
+      host.endsWith(".trello.com") ||
+      host.includes("trello-attachments")
+    );
+  } catch {
+    return false;
+  }
+}
+
 interface TrelloCard {
   id: string;
   name: string;
@@ -75,6 +90,7 @@ export function TrelloImagePicker({
   const allImages: SelectedTrelloImage[] = cards.flatMap((card) =>
     (card.attachments ?? [])
       .filter((a) => {
+        if (!isTrelloHostedUrl(a.url)) return false;
         if (a.mimeType && a.mimeType.startsWith("image/")) return true;
         if (!a.mimeType) {
           const ext = a.url?.split("?")[0]?.split(".").pop()?.toLowerCase();

@@ -95,15 +95,9 @@ export async function GET(request: Request) {
     );
   }
 
-  let targetUrl: string;
-  try {
-    targetUrl = decodeURIComponent(rawUrl.trim());
-  } catch {
-    return new Response(
-      JSON.stringify({ error: "Invalid url parameter" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
-  }
+  // URLSearchParams.get() already returns a decoded value. Decoding again can
+  // throw on legitimate Trello attachment URLs that include percent characters.
+  const targetUrl = rawUrl.trim();
 
   if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
     return new Response(
