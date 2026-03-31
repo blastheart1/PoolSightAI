@@ -140,7 +140,8 @@ export const aiAnalysisEntries = pgTable(
     asOfDate: varchar("as_of_date", { length: 10 }).notNull(),
     pmUpdate: text("pm_update"),
     trelloListId: text("trello_list_id"),
-    imageSource: varchar("image_source", { length: 20 }), // "upload" | "trello"
+    imageSource: varchar("image_source", { length: 20 }), // "upload" | "trello" | "audio"
+    audioTranscript: text("audio_transcript"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({

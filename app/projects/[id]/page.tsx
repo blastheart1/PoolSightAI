@@ -8,6 +8,7 @@ import { ContractItemsTable } from "../../../components/ContractItemsTable";
 import { TrelloListPicker, type TrelloLinkedList } from "../../../components/TrelloListPicker";
 import { TrelloImagePicker, type SelectedTrelloImage } from "../../../components/TrelloImagePicker";
 import { SuggestionReviewTable, type LineItemResult } from "../../../components/SuggestionReviewTable";
+import { AudioTranscriber } from "../../../components/AudioTranscriber";
 import type { OrderItem } from "../../../lib/contractTypes";
 
 interface ContractItemRow {
@@ -442,8 +443,9 @@ export default function ProjectDetailPage({
   const [savedLineItemResults, setSavedLineItemResults] = useState<LineItemResult[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [pmUpdate, setPmUpdate] = useState("");
-  const [imageSourceTab, setImageSourceTab] = useState<"upload" | "trello">("upload");
+  const [imageSourceTab, setImageSourceTab] = useState<"upload" | "trello" | "voice">("upload");
   const [trelloImages, setTrelloImages] = useState<SelectedTrelloImage[]>([]);
+  const [audioTranscript, setAudioTranscript] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parseFile, setParseFile] = useState<File | null>(null);
   const [parseUrl, setParseUrl] = useState("");
@@ -458,6 +460,7 @@ export default function ProjectDetailPage({
   const [reportDetail, setReportDetail] = useState<AnalysisResultShape | null>(null);
   const [reportDetailLoading, setReportDetailLoading] = useState(false);
   const [reportLineItemResults, setReportLineItemResults] = useState<LineItemResult[]>([]);
+  const [reportAudioTranscript, setReportAudioTranscript] = useState<string | null>(null);
   const [editingDetails, setEditingDetails] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -683,6 +686,7 @@ export default function ProjectDetailPage({
           setReportDetail(null);
         }
         setReportLineItemResults(Array.isArray(data.lineItemResults) ? data.lineItemResults : []);
+        setReportAudioTranscript(typeof data.audioTranscript === "string" && data.audioTranscript ? data.audioTranscript : null);
       } catch {
         setReportDetail(null);
         setReportLineItemResults([]);
@@ -697,6 +701,7 @@ export default function ProjectDetailPage({
     setOpenReportId(null);
     setReportDetail(null);
     setReportLineItemResults([]);
+    setReportAudioTranscript(null);
   }, []);
 
   const startEditingDetails = useCallback(() => {
@@ -802,6 +807,37 @@ export default function ProjectDetailPage({
           imageUrls: trelloImages.map((i) => i.url),
           pmUpdate: pmUpdate || undefined,
           ecoMode: "balanced",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Analysis failed");
+      setAnalysisResult(data.analysisResult);
+      setSavedEntryId(data.entryId ?? null);
+      await loadAnalyses();
+    } catch (e) {
+      setAnalysisError(e instanceof Error ? e.message : "Analysis failed");
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
+  const runAudioAnalysis = async () => {
+    if (!id || !audioTranscript.trim()) {
+      setAnalysisError("Add a transcript or upload and transcribe an audio file first.");
+      return;
+    }
+    setAnalysisLoading(true);
+    setAnalysisError("");
+    setAnalysisResult(null);
+    setSavedEntryId(null);
+    setSavedLineItemResults([]);
+    try {
+      const res = await fetch(`/api/projects/${id}/audio-analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioTranscript: audioTranscript.trim(),
+          pmUpdate: pmUpdate || undefined,
         }),
       });
       const data = await res.json();
@@ -1009,13 +1045,14 @@ export default function ProjectDetailPage({
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold tracking-wide text-slate-900">AI Analysis</h2>
             <p className="mt-2 text-sm text-slate-600">
-              Upload site photos or select from a linked Trello list. Select line items above to align the AI report.
+              Upload site photos, select from a linked Trello list, or transcribe a PM voice note. Select line items above to align the AI report.
             </p>
 
-            {/* Image source tabs */}
-            {trelloLinkedLists.length > 0 && (
-              <div className="mt-4 flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 w-fit">
-                {(["upload", "trello"] as const).map((tab) => (
+            {/* Image source tabs — always visible */}
+            <div className="mt-4 flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 w-fit flex-wrap">
+              {(["upload", "trello", "voice"] as const)
+                .filter((tab) => tab !== "trello" || trelloLinkedLists.length > 0)
+                .map((tab) => (
                   <button
                     key={tab}
                     type="button"
@@ -1030,13 +1067,12 @@ export default function ProjectDetailPage({
                         : "text-slate-500 hover:text-slate-700",
                     ].join(" ")}
                   >
-                    {tab === "upload" ? "Upload Photos" : "From Trello"}
+                    {tab === "upload" ? "Upload Photos" : tab === "trello" ? "From Trello" : "Voice Note"}
                   </button>
                 ))}
-              </div>
-            )}
+            </div>
 
-            {imageSourceTab === "upload" || trelloLinkedLists.length === 0 ? (
+            {imageSourceTab === "upload" && (
               <>
                 <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Site photos
@@ -1053,7 +1089,9 @@ export default function ProjectDetailPage({
                   <p className="mt-1 text-xs text-slate-500">{files.length} file(s) selected</p>
                 )}
               </>
-            ) : (
+            )}
+
+            {imageSourceTab === "trello" && trelloLinkedLists.length > 0 && (
               <div className="mt-4">
                 <TrelloImagePicker
                   linkedLists={trelloLinkedLists}
@@ -1063,19 +1101,33 @@ export default function ProjectDetailPage({
               </div>
             )}
 
-            <label htmlFor="pm-update" className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-              PM update (optional)
-            </label>
-            <textarea
-              id="pm-update"
-              value={pmUpdate}
-              onChange={(e) => setPmUpdate(e.target.value)}
-              rows={3}
-              className="mt-2 w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-inner focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600"
-              placeholder="e.g. Gunite cure complete, tile scheduled next week"
-            />
+            {imageSourceTab === "voice" && (
+              <div className="mt-4">
+                <AudioTranscriber
+                  onTranscriptChange={setAudioTranscript}
+                  disabled={analysisLoading}
+                />
+              </div>
+            )}
+
+            {imageSourceTab !== "voice" && (
+              <>
+                <label htmlFor="pm-update" className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  PM update (optional)
+                </label>
+                <textarea
+                  id="pm-update"
+                  value={pmUpdate}
+                  onChange={(e) => setPmUpdate(e.target.value)}
+                  rows={3}
+                  className="mt-2 w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-inner focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600"
+                  placeholder="e.g. Gunite cure complete, tile scheduled next week"
+                />
+              </>
+            )}
+
             <div className="mt-4 flex flex-wrap gap-2">
-              {imageSourceTab === "upload" || trelloLinkedLists.length === 0 ? (
+              {imageSourceTab === "upload" && (
                 <button
                   type="button"
                   onClick={runAnalysis}
@@ -1084,7 +1136,8 @@ export default function ProjectDetailPage({
                 >
                   {analysisLoading ? "Analyzing…" : "Analyze"}
                 </button>
-              ) : (
+              )}
+              {imageSourceTab === "trello" && trelloLinkedLists.length > 0 && (
                 <button
                   type="button"
                   onClick={runTrelloAnalysis}
@@ -1094,6 +1147,16 @@ export default function ProjectDetailPage({
                   {analysisLoading
                     ? "Analyzing…"
                     : `Analyze ${trelloImages.length} image${trelloImages.length !== 1 ? "s" : ""}`}
+                </button>
+              )}
+              {imageSourceTab === "voice" && (
+                <button
+                  type="button"
+                  onClick={runAudioAnalysis}
+                  disabled={analysisLoading || !audioTranscript.trim()}
+                  className="rounded-lg bg-violet-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
+                >
+                  {analysisLoading ? "Analyzing…" : "Analyze Voice Note"}
                 </button>
               )}
             </div>
@@ -1150,6 +1213,10 @@ export default function ProjectDetailPage({
                           {a.imageSource === "trello" ? (
                             <span className="inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
                               Trello
+                            </span>
+                          ) : a.imageSource === "audio" ? (
+                            <span className="inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700">
+                              Voice Note
                             </span>
                           ) : (
                             <span className="inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
@@ -1292,6 +1359,16 @@ export default function ProjectDetailPage({
                         savingReport={false}
                         showSaveButton={false}
                       />
+                      {reportAudioTranscript && (
+                        <details className="mt-4 rounded-lg border border-violet-200 bg-violet-50">
+                          <summary className="cursor-pointer px-4 py-2.5 text-xs font-semibold text-violet-700 select-none">
+                            PM Voice Note Transcript
+                          </summary>
+                          <p className="whitespace-pre-wrap px-4 pb-4 pt-2 text-xs text-slate-700 leading-relaxed">
+                            {reportAudioTranscript}
+                          </p>
+                        </details>
+                      )}
                       <SuggestionReviewTable
                         projectId={id!}
                         contractItems={project?.contractItems ?? []}

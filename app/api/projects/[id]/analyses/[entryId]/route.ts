@@ -68,6 +68,7 @@ export async function GET(
       createdAt: entry.createdAt,
       imageSource: entry.imageSource ?? "upload",
       trelloListId: entry.trelloListId ?? null,
+      audioTranscript: entry.audioTranscript ?? null,
       reconciliationResult,
       lineItemResults,
     });

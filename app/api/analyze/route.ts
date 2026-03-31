@@ -11,10 +11,12 @@ type AnalyzeRequest = {
   projectName?: string;
   /** Optional contract line item labels to align report rows to */
   lineItemLabels?: string[];
+  /** Optional PM voice note transcript — enables audio-only analysis when images is empty */
+  audioTranscript?: string;
 };
 
 type RecoStatus = "advance" | "hold" | "verify" | "ok";
-type PhotoSupported = "yes" | "no" | "partial" | "unclear";
+type PhotoSupported = "yes" | "no" | "partial" | "unclear" | "audio" | "verbal";
 
 type RecoRow = {
   line_item: string;
@@ -229,7 +231,10 @@ function normalizeConfidence(value: unknown): string {
 }
 
 function normalizePhotoSupported(value: unknown): PhotoSupported {
-  if (value === "yes" || value === "no" || value === "partial" || value === "unclear") return value;
+  if (
+    value === "yes" || value === "no" || value === "partial" || value === "unclear" ||
+    value === "audio" || value === "verbal"
+  ) return value;
   return "unclear";
 }
 
@@ -523,12 +528,16 @@ function buildPrompt(opts: {
   today: string;
   pmUpdate: string;
   lineItemLabels: string[];
+  audioTranscript?: string;
+  hasImages?: boolean;
   isRetry?: boolean;
   retryReason?: "tool_missing" | "incomplete";
 }): string {
-  const { projectName, today, pmUpdate, lineItemLabels, isRetry, retryReason } = opts;
+  const { projectName, today, pmUpdate, lineItemLabels, audioTranscript, hasImages = true, isRetry, retryReason } = opts;
 
   const hasContractItems = lineItemLabels.length > 0;
+  const audioOnly = !hasImages && !!audioTranscript;
+  const hasBoth = hasImages && !!audioTranscript;
 
   const contractSection = hasContractItems
     ? `
@@ -546,19 +555,183 @@ ${lineItemLabels.map((label, i) => `${i + 1}. ${label}`).join("\n")}
     ? `
 WHEN NO CONTRACT LINE ITEMS ARE PROVIDED
 
-Still produce a full analysis. Create sections and rows for every scope of work visible in the photos (shell, plumbing, electrical, decking, tile, equipment, etc.). Apply the sequencing rules to infer what is likely complete even if not directly visible, and flag all inferences explicitly in the notes using the INFERRED prefix.
+Still produce a full analysis. Create sections and rows for every scope of work ${audioOnly ? "described in the transcript" : "visible in the photos"} (shell, plumbing, electrical, decking, tile, equipment, etc.). Apply the sequencing rules to infer what is likely complete even if not directly described, and flag all inferences explicitly in the notes using the INFERRED prefix.
 
 ---
 `
     : "";
 
+  // ── Audio-only analysis path ─────────────────────────────────────────────
+  if (audioOnly) {
+    return `
+You are a senior pool construction billing analyst. Your output will be used to update progress billing for contract line items. Provide full, detailed analysis so the project manager can justify each billing change.
+
+Project: ${projectName}
+Analysis date: ${today}
+Source: PM voice note transcript (no site photos provided)
+
+Using the PM's verbal site update transcript below, produce a billing reconciliation by calling the reconcile_billing tool.
+
+---
+${contractSection}
+STEP 1 — TRANSCRIPT ANALYSIS (internal reasoning)
+
+Before producing any billing output, carefully read the full transcript. For each statement:
+- Identify which scope of work is mentioned (e.g., excavation, shell, plumbing, decking, tile, equipment).
+- Assess the completion state based on the PM's language:
+  - "Complete", "done", "finished", "wrapped up" → substantially or fully complete
+  - "In progress", "working on", "started" → partially complete (estimate %)
+  - "Scheduled", "next week", "upcoming" → not yet started or early stage
+- Note the specificity: does the PM give dates, quantities, sub-task details, or is the statement vague?
+- Flag any contradictions or ambiguities in the transcript.
+- Note scopes NOT mentioned — these cannot be reliably suggested from audio alone.
+
+---
+
+STEP 1.5 — TRANSCRIPT-TO-SCOPE MAPPING (internal reasoning)
+
+Before producing billing rows, map each transcript statement to the contract line items it informs. For each statement note:
+- Which contract line item(s) it addresses
+- What the PM said (verbatim or close paraphrase)
+- Confidence level: high (explicit completion claim) | medium (partial or in-progress) | low (vague or indirect)
+
+Complete this mapping before Step 2 to ensure every billing row references specific transcript statements.
+
+---
+
+STEP 2 — BILLING RECONCILIATION
+
+Call the reconcile_billing tool with the full object.
+
+Tool call schema:
+{
+  project: string,
+  as_of_date: string (YYYY-MM-DD),
+  confidence: "high" | "medium" | "low",
+  image_coverage_note: string,
+  summary: string,
+  sections: [
+    {
+      id: string,
+      title: string,
+      rows: [
+        {
+          line_item: string,
+          current_percent: string,
+          suggested_percent: string,
+          suggested_percent_range: string,
+          status: "advance" | "hold" | "verify" | "ok",
+          photo_supported: "audio" | "verbal" | "unclear",
+          notes: string
+        }
+      ]
+    }
+  ],
+  key_actions: [
+    {
+      priority: "immediate" | "this_week" | "verify" | "next_cycle",
+      label: string,
+      action: string
+    }
+  ]
+}
+
+---
+
+FIELD DEFINITIONS
+
+current_percent: The percentage previously billed and approved. Assess actual completion from the transcript, then set suggested_percent accordingly.
+
+image_coverage_note: Since no photos were provided, describe what the transcript covers and what scopes are unmentioned or unclear from audio alone.
+
+summary: 2–5 sentences describing what the PM reported, current vs. suggested progress, and the main billing recommendations based on verbal evidence.
+
+suggested_percent: A single recommended billing value (e.g., "75%") — not a range.
+
+suggested_percent_range: If uncertainty exists, provide a range here (e.g., "70–80%"). Otherwise use the same value as suggested_percent.
+
+photo_supported:
+- "audio" = PM explicitly and clearly states work is complete or at a specific % (high confidence verbal evidence)
+- "verbal" = PM mentions work but is vague, uses future tense, or lacks specific detail (lower confidence)
+- "unclear" = scope not mentioned in transcript or statement is contradictory
+
+status:
+- "advance" = PM clearly and specifically states work is done, provides details (dates, sub-tasks, quantities)
+- "verify" = PM mentions work but is vague, ambiguous, or the claim needs photo confirmation
+- "hold" = evidence contradicts advancing, or PM statement raises concerns
+- "ok" = current % aligns with PM description, no change needed
+
+key_actions: Minimum three entries. Prioritize verification requests for items that are audio-claimed but unconfirmed.
+
+---
+
+NOTES FIELD REQUIREMENTS
+
+Each row's notes field must:
+1. State the photo_supported value and what it means in this context ("audio" = clearly stated, "verbal" = vague mention, "unclear" = not mentioned).
+2. Quote or closely paraphrase the PM's exact words from the transcript that support the suggested %.
+3. Explain why the suggested_percent is appropriate given the verbal evidence.
+4. If the scope is not mentioned in the transcript, explicitly state: "This scope is not mentioned in the PM transcript. Percentage based on [construction sequence logic / prior billing — specify which]."
+5. If suggesting "advance" status, explain what specific claim the PM made that justifies billing.
+6. If suggesting "verify", explain what additional confirmation is needed before billing.
+
+Do NOT write generic notes. Every note must reference specific transcript statements and be defensible for billing purposes.
+
+---
+
+CONSTRUCTION SEQUENCING RULES
+
+Do not bill a later phase before earlier phases are substantially complete. Enforce this order:
+
+1. Excavation
+2. Steel / rebar
+3. Shell / gunite / shotcrete
+4. Rough plumbing & electrical
+5. Equipment pad / equipment set
+6. Waterline tile & coping
+7. Decking / concrete flatwork
+8. Interior finish / plaster
+9. Startup / fill / chemical balance
+
+If the transcript describes a later phase, you may infer earlier phases are complete — but explicitly note this inference.
+
+---
+
+INFERENCE TRANSPARENCY
+
+Any suggested_percent for a scope NOT explicitly mentioned in the transcript must be flagged: "INFERRED: [reason]." For example: "INFERRED: Plumbing rough-in not mentioned. Inferred from PM's statement that shell is complete (construction sequencing logic)."
+
+---
+
+CONFIDENCE RULES (audio-only)
+
+- "high": Transcript explicitly covers most contract line items with specific completion claims and details.
+- "medium": Transcript covers some items clearly but others are vague or not mentioned. Maximum confidence for audio-only is "medium" unless transcript is highly detailed.
+- "low": Transcript is brief, vague, or covers only a small portion of the work.
+
+NOTE: Audio-only analyses carry inherent uncertainty. Use "verify" status generously and recommend photo confirmation for high-value line items.
+
+---
+${noContractFallback}
+PM UPDATE (optional):
+${pmUpdate || "<none provided>"}
+
+---
+
+PM VOICE NOTE TRANSCRIPT:
+${audioTranscript.trim()}
+${isRetry && retryReason === "incomplete" ? RETRY_PROMPT_SUFFIX_INCOMPLETE : isRetry ? RETRY_PROMPT_SUFFIX_TOOL_MISSING : ""}
+`.trim();
+  }
+
+  // ── Photo-based analysis path (with optional transcript cross-reference) ──
   return `
 You are a senior pool construction billing analyst. Your output will be used to update progress billing for contract line items. Provide full, detailed analysis so the project manager can justify each billing change.
 
 Project: ${projectName}
 Analysis date: ${today}
 
-Using the site photos and (if provided) the PM update text, produce a billing reconciliation by calling the reconcile_billing tool.
+Using the site photos${hasBoth ? " and PM voice note transcript" : ""} and (if provided) the PM update text, produce a billing reconciliation by calling the reconcile_billing tool.
 
 ---
 ${contractSection}
@@ -589,7 +762,18 @@ Before producing billing rows, explicitly map each provided image to the contrac
 Complete this mapping internally before Step 2. It ensures every billing row's notes field can reference specific images accurately.
 
 ---
+${hasBoth ? `
+STEP 1.6 — TRANSCRIPT CROSS-REFERENCE (internal reasoning)
 
+A PM voice note transcript is also provided. After analyzing photos:
+- Compare what the photos show against what the PM claims in the transcript.
+- For each contract line item, note whether the photo evidence SUPPORTS, CONTRADICTS, or is SILENT on the PM's verbal claim.
+- If the PM claims work is complete but photos do not confirm it: set status to "verify" and note the discrepancy.
+- If the PM claims work is complete AND photos confirm it: this strengthens confidence — you may set "advance" with higher confidence.
+- If photos show progress but the PM did not mention it: note the observation and base billing on visual evidence.
+
+---
+` : ""}
 STEP 2 — BILLING RECONCILIATION
 
 Call the reconcile_billing tool with the full object. All required billing fields are required; rendering_relation_note is optional (omit if no rendering/drawing is present).
@@ -634,7 +818,7 @@ FIELD DEFINITIONS
 
 current_percent: The percentage previously billed and approved in the billing system. This is provided as context only — it represents what has already been invoiced. Do not assume this value is correct. Assess actual completion from photos and PM input, then set suggested_percent accordingly. If current_percent exceeds what the photos support, set status to "hold" or "verify" and explain in notes.
 
-image_coverage_note: Describe how many images were provided, what scopes they cover, and flag any scopes that are missing or unconfirmable.
+image_coverage_note: Describe how many images were provided, what scopes they cover, and flag any scopes that are missing or unconfirmable.${hasBoth ? " Also note where the transcript aligned with or contradicted photo evidence." : ""}
 
 rendering_relation_note: Optional 2–5 sentences. Only if at least one provided image appears to be an architectural rendering/drawing: compare field photo progress vs the rendering's design intent, and explicitly state where they align and where matching is uncertain. Reference the provided images by position or description (e.g., "Image 1", "third drawing sheet", etc.). If no rendering/drawing is present, omit the field.
 
@@ -660,7 +844,7 @@ Each row's notes field must:
 3. Describe what specific visual evidence supports or contradicts the suggested percentage.
 4. If the scope is not visible in any image, explicitly state: "This scope is not visible in the provided images. Percentage based on [PM update / construction sequence logic / prior billing — specify which]."
 5. Explain why the suggested_percent is appropriate given the evidence — not just what was seen.
-6. If holding or downgrading a percentage, explain what evidence is missing or contradictory.
+6. If holding or downgrading a percentage, explain what evidence is missing or contradictory.${hasBoth ? "\n7. If the PM transcript mentioned this scope, note whether it aligned with or contradicted the photo evidence." : ""}
 
 Do NOT write generic notes like "work appears to be in progress." Every note must be specific and defensible for billing purposes.
 
@@ -693,14 +877,20 @@ Any suggested_percent for a scope that is NOT directly visible in the provided p
 CONFIDENCE RULES
 
 Set confidence based on how well the photos cover the billable scopes:
-- "high": Photos clearly show the relevant scope for most line items.
-- "medium": 1–2 key scopes are unclear, partially visible, or not shown.
+- "high": Photos clearly show the relevant scope for most line items.${hasBoth ? " Transcript confirms photo evidence with no contradictions." : ""}
+- "medium": 1–2 key scopes are unclear, partially visible, or not shown.${hasBoth ? " Or transcript partially confirms/contradicts photos." : ""}
 - "low": Photos are limited, blurry, or cover only a small portion of the work.
 
 ---
 ${noContractFallback}
 PM UPDATE (optional):
 ${pmUpdate || "<none provided>"}
+${hasBoth ? `
+---
+
+PM VOICE NOTE TRANSCRIPT:
+${audioTranscript.trim()}
+` : ""}
 ${isRetry && retryReason === "incomplete" ? RETRY_PROMPT_SUFFIX_INCOMPLETE : isRetry ? RETRY_PROMPT_SUFFIX_TOOL_MISSING : ""}
 `.trim();
 }
@@ -735,6 +925,7 @@ export async function POST(request: Request) {
     const rawImages = body.images ?? [];
     const pmUpdate = body.pmUpdate ?? "";
     const projectName = body.projectName ?? "Site Analysis";
+    const audioTranscript = typeof body.audioTranscript === "string" ? body.audioTranscript.slice(0, 8000).trim() : "";
     const lineItemLabels = Array.isArray(body.lineItemLabels)
       ? body.lineItemLabels
           .slice(0, MAX_LINE_ITEM_LABELS)
@@ -746,8 +937,8 @@ export async function POST(request: Request) {
           )
       : [];
 
-    if (!Array.isArray(rawImages) || rawImages.length === 0) {
-      return new Response(JSON.stringify({ error: "No images provided." }), {
+    if ((!Array.isArray(rawImages) || rawImages.length === 0) && !audioTranscript) {
+      return new Response(JSON.stringify({ error: "Provide at least one image or an audio transcript." }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
@@ -775,9 +966,10 @@ export async function POST(request: Request) {
     }));
 
     const today = new Date().toISOString().split("T")[0];
+    const hasImages = images.length > 0;
 
     const promptForAttempt = (isRetry: boolean, retryReason?: "tool_missing" | "incomplete") =>
-      buildPrompt({ projectName, today, pmUpdate, lineItemLabels, isRetry, retryReason });
+      buildPrompt({ projectName, today, pmUpdate, lineItemLabels, audioTranscript: audioTranscript || undefined, hasImages, isRetry, retryReason });
 
     // Log what we send to the AI (no base64 — images omitted from log)
     console.log(
@@ -787,6 +979,7 @@ export async function POST(request: Request) {
         imageCount: images.length,
         projectName,
         pmUpdateLength: pmUpdate.length,
+        hasAudioTranscript: !!audioTranscript,
         lineItemLabels,
         prompt: promptForAttempt(false),
       })
