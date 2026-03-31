@@ -48,7 +48,11 @@ export function TrelloListPicker({ projectId, linkedLists, onLinksChange }: Trel
         throw new Error(d.error ?? "Failed to load Trello board");
       }
       const data = await res.json();
-      setBoard(data);
+      setBoard({
+        id: data.board?.id ?? "",
+        name: data.board?.name ?? "",
+        lists: (data.lists ?? []).map((l: { id: string; name: string }) => ({ id: l.id, name: l.name })),
+      });
     } catch (e) {
       setBoardError(e instanceof Error ? e.message : "Failed to load board");
     } finally {

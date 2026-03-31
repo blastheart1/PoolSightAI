@@ -495,6 +495,19 @@ export default function ProjectDetailPage({
     }
   }, [id]);
 
+  const refreshTrelloLinks = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/projects/${id}/trello-links`);
+      if (res.ok) {
+        const data = await res.json();
+        setProject((p) => p ? { ...p, trelloLinkedLists: data } : null);
+      }
+    } catch {
+      // ignore — non-critical refresh
+    }
+  }, [id]);
+
   const loadAnalyses = useCallback(async () => {
     if (!id) return;
     try {
@@ -1223,7 +1236,7 @@ export default function ProjectDetailPage({
                       <TrelloListPicker
                         projectId={id!}
                         linkedLists={project?.trelloLinkedLists ?? []}
-                        onLinksChange={load}
+                        onLinksChange={refreshTrelloLinks}
                       />
                     </div>
                   </div>
