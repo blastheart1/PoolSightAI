@@ -90,6 +90,7 @@ function hasImageLikeExtension(urlOrPath: string): boolean {
  * Query: url (required) – the attachment URL to fetch.
  */
 export async function GET(request: Request) {
+  const debugRunId = request.headers.get("x-debug-run-id") || "n/a";
   if (!isTrelloConfigured()) {
     return new Response(
       JSON.stringify({ error: "Trello not configured" }),
@@ -121,6 +122,30 @@ export async function GET(request: Request) {
   }
 
   // Only allow Trello attachment URLs so we are not an open proxy.
+  // #region agent log
+  fetch("http://127.0.0.1:7691/ingest/b1e0d930-3f83-42f8-9729-85202135bc15", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1e0c6e" },
+    body: JSON.stringify({
+      sessionId: "1e0c6e",
+      runId: debugRunId,
+      hypothesisId: "H2",
+      location: "app/api/trello/proxy-image/route.ts:116",
+      message: "proxy target URL classification",
+      data: {
+        targetHost: (() => {
+          try {
+            return new URL(targetUrl).hostname;
+          } catch {
+            return "invalid";
+          }
+        })(),
+        allowedByHostRule: isTrelloUrl(targetUrl),
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
   if (!isTrelloUrl(targetUrl)) {
     return new Response(
       JSON.stringify({ error: "Only Trello image URLs are allowed" }),
@@ -151,6 +176,24 @@ export async function GET(request: Request) {
   }
 
   if (!res.ok) {
+    // #region agent log
+    fetch("http://127.0.0.1:7691/ingest/b1e0d930-3f83-42f8-9729-85202135bc15", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1e0c6e" },
+      body: JSON.stringify({
+        sessionId: "1e0c6e",
+        runId: debugRunId,
+        hypothesisId: "H4",
+        location: "app/api/trello/proxy-image/route.ts:145",
+        message: "upstream trello non-ok response",
+        data: {
+          status: res.status,
+          statusText: res.statusText,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     return new Response(
       JSON.stringify({
         error: "Upstream returned error",

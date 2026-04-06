@@ -34,6 +34,7 @@ export async function POST(
 
   try {
     const { id: projectId } = await params;
+    const debugRunId = `proj-${projectId}-${Date.now()}`;
 
     const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
     if (!project) {
@@ -49,6 +50,30 @@ export async function POST(
     const imageUrls: string[] = Array.isArray(body.imageUrls)
       ? body.imageUrls.filter((u: unknown) => typeof u === "string" && (u as string).trim())
       : [];
+    // #region agent log
+    fetch("http://127.0.0.1:7691/ingest/b1e0d930-3f83-42f8-9729-85202135bc15", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1e0c6e" },
+      body: JSON.stringify({
+        sessionId: "1e0c6e",
+        runId: debugRunId,
+        hypothesisId: "H2",
+        location: "app/api/projects/[id]/trello-analysis/route.ts:49",
+        message: "incoming selected image URLs",
+        data: {
+          count: imageUrls.length,
+          hosts: imageUrls.slice(0, 5).map((u) => {
+            try {
+              return new URL(u).hostname;
+            } catch {
+              return "invalid";
+            }
+          }),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (imageUrls.length === 0) {
       return NextResponse.json({ error: "imageUrls must be a non-empty array" }, { status: 400 });
     }
@@ -100,14 +125,89 @@ export async function POST(
       imageAttachments,
       base,
       ecoMode,
-      MAX_IMAGES
+      MAX_IMAGES,
+      debugRunId
     );
+    // #region agent log
+    fetch("http://127.0.0.1:7691/ingest/b1e0d930-3f83-42f8-9729-85202135bc15", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1e0c6e" },
+      body: JSON.stringify({
+        sessionId: "1e0c6e",
+        runId: debugRunId,
+        hypothesisId: "H1",
+        location: "app/api/projects/[id]/trello-analysis/route.ts:101",
+        message: "post image fetch+optimize summary",
+        data: {
+          base,
+          requestedCount: imageAttachments.length,
+          fetchedCount: images.length,
+          totalOriginalBytes,
+          totalFinalBytes,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
 
     if (images.length === 0) {
+      const probeResults: Array<{
+        host: string;
+        status: number | null;
+        contentType: string | null;
+        bodyPreview: string | null;
+      }> = [];
+
+      for (const url of imageUrls.slice(0, 3)) {
+        let host = "invalid";
+        try {
+          host = new URL(url).hostname;
+        } catch {
+          // keep invalid
+        }
+
+        try {
+          const probe = await fetch(
+            `${base}/api/trello/proxy-image?url=${encodeURIComponent(url)}`,
+            {
+              cache: "no-store",
+            }
+          );
+          const contentType = probe.headers.get("content-type");
+          const bodyPreview = !probe.ok
+            ? (await probe.text().catch(() => "")).slice(0, 300)
+            : null;
+          probeResults.push({
+            host,
+            status: probe.status,
+            contentType,
+            bodyPreview,
+          });
+        } catch (err) {
+          probeResults.push({
+            host,
+            status: null,
+            contentType: null,
+            bodyPreview: err instanceof Error ? err.message : "probe_failed",
+          });
+        }
+      }
+
       return NextResponse.json(
         {
           error: "Could not fetch any images from the provided URLs",
           errorCode: "image_fetch_failed",
+          debug: {
+            requestedCount: imageUrls.length,
+            selectedHosts: imageUrls.slice(0, 5).map((u) => {
+              try {
+                return new URL(u).hostname;
+              } catch {
+                return "invalid";
+              }
+            }),
+            probeResults,
+          },
         },
         { status: 502 }
       );

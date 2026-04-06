@@ -14,11 +14,60 @@ export function parseEcoMode(value: unknown): EcoMode {
 export async function fetchImageViaProxy(
   baseOrigin: string,
   imageUrl: string,
-  fallbackMime = "image/jpeg"
+  fallbackMime = "image/jpeg",
+  debugRunId = "n/a"
 ): Promise<{ buf: Buffer; mimeType: string } | null> {
   try {
     const proxyUrl = `${baseOrigin}/api/trello/proxy-image?url=${encodeURIComponent(imageUrl)}`;
-    const res = await fetch(proxyUrl, { cache: "no-store" });
+    // #region agent log
+    fetch("http://127.0.0.1:7691/ingest/b1e0d930-3f83-42f8-9729-85202135bc15", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1e0c6e" },
+      body: JSON.stringify({
+        sessionId: "1e0c6e",
+        runId: debugRunId,
+        hypothesisId: "H1",
+        location: "lib/trello-images.ts:20",
+        message: "fetching image via proxy",
+        data: {
+          baseOrigin,
+          imageHost: (() => {
+            try {
+              return new URL(imageUrl).hostname;
+            } catch {
+              return "invalid";
+            }
+          })(),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    const res = await fetch(proxyUrl, {
+      cache: "no-store",
+      headers: {
+        "X-Debug-Run-Id": debugRunId,
+      },
+    });
+    // #region agent log
+    fetch("http://127.0.0.1:7691/ingest/b1e0d930-3f83-42f8-9729-85202135bc15", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1e0c6e" },
+      body: JSON.stringify({
+        sessionId: "1e0c6e",
+        runId: debugRunId,
+        hypothesisId: "H3",
+        location: "lib/trello-images.ts:23",
+        message: "proxy response status",
+        data: {
+          ok: res.ok,
+          status: res.status,
+          contentType: res.headers.get("content-type"),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (!res.ok) return null;
     const arr = await res.arrayBuffer();
     const buf = Buffer.from(arr);
@@ -78,7 +127,8 @@ export async function fetchAndOptimizeImages(
   imageAttachments: { url: string; mimeType?: string }[],
   baseOrigin: string,
   ecoMode: EcoMode,
-  maxImages: number
+  maxImages: number,
+  debugRunId = "n/a"
 ): Promise<{
   images: { b64: string; mimeType: string }[];
   totalOriginalBytes: number;
@@ -92,7 +142,7 @@ export async function fetchAndOptimizeImages(
   for (const item of toFetch) {
     const mime =
       item.mimeType && item.mimeType.startsWith("image/") ? item.mimeType : "image/jpeg";
-    const fetched = await fetchImageViaProxy(baseOrigin, item.url, mime);
+    const fetched = await fetchImageViaProxy(baseOrigin, item.url, mime, debugRunId);
     if (!fetched) continue;
     totalOriginalBytes += fetched.buf.byteLength;
     const optimized = await optimizeImageIfNeeded(fetched.buf, ecoMode);
