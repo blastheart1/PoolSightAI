@@ -13,6 +13,8 @@ type AnalyzeRequest = {
   lineItemLabels?: string[];
   /** Optional PM voice note transcript — enables audio-only analysis when images is empty */
   audioTranscript?: string;
+  /** When true, inject STRICT_OUTPUT_CONTRACT block into the prompt */
+  strictMode?: boolean;
 };
 
 type RecoStatus = "advance" | "hold" | "verify" | "ok";
@@ -487,6 +489,27 @@ const RETRY_PROMPT_SUFFIX_TOOL_MISSING =
 const RETRY_PROMPT_SUFFIX_INCOMPLETE =
   "\n\nIMPORTANT: Your previous response called the tool but omitted required fields. You MUST call reconcile_billing again with a COMPLETE object including ALL required top-level fields (project, as_of_date, confidence, image_coverage_note, summary, sections, key_actions). Each row MUST include: line_item, current_percent, suggested_percent, suggested_percent_range, status, photo_supported, and notes. Include at least three key_actions. If contract line items were provided above, you MUST produce exactly one row per contract line item using the exact label text. Do not omit any contract line items.";
 
+const STRICT_OUTPUT_CONTRACT = (labels: string[]) => `
+
+STRICT OUTPUT CONTRACT (REQUIRED):
+You are given EXACT_SELECTED_LINE_ITEMS below — these are the ONLY items to analyze.
+Return EXACTLY one row per item listed, in the SAME ORDER as listed.
+Copy the line_item text EXACTLY as given — do not paraphrase, truncate, or reorder.
+suggested_percent is REQUIRED on every row — provide a best-supported value even if uncertain, then set status to "verify".
+Do not add rows, omit rows, merge rows, or split rows.
+
+EXACT_SELECTED_LINE_ITEMS:
+${labels.map((l, i) => `${i + 1}. ${l}`).join("\n")}
+`;
+
+const STRICT_RETRY_SUFFIX = (missingLabels: string[]) => `
+
+PARTIAL RETRY — You are being called again because some items were missing from your previous output.
+Return ONLY rows for these missing items (do not repeat already-correct rows):
+${missingLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}
+Each row must have suggested_percent filled in. Use "verify" status if uncertain.
+`;
+
 /** Tool output is valid for display only if it has non-empty sections and key_actions. */
 function isToolInputComplete(input: Record<string, unknown>): boolean {
   const sections = input.sections;
@@ -532,8 +555,10 @@ function buildPrompt(opts: {
   hasImages?: boolean;
   isRetry?: boolean;
   retryReason?: "tool_missing" | "incomplete";
+  strictMode?: boolean;
+  retryMissingLabels?: string[];
 }): string {
-  const { projectName, today, pmUpdate, lineItemLabels, audioTranscript, hasImages = true, isRetry, retryReason } = opts;
+  const { projectName, today, pmUpdate, lineItemLabels, audioTranscript, hasImages = true, isRetry, retryReason, strictMode, retryMissingLabels } = opts;
 
   const hasContractItems = lineItemLabels.length > 0;
   const audioOnly = !hasImages && !!audioTranscript;
@@ -549,6 +574,14 @@ ${lineItemLabels.map((label, i) => `${i + 1}. ${label}`).join("\n")}
 
 ---
 `
+    : "";
+
+  const effectiveContractSection = strictMode && lineItemLabels.length > 0
+    ? STRICT_OUTPUT_CONTRACT(lineItemLabels)
+    : contractSection;
+
+  const strictRetrySection = strictMode && isRetry && retryMissingLabels && retryMissingLabels.length > 0
+    ? STRICT_RETRY_SUFFIX(retryMissingLabels)
     : "";
 
   const noContractFallback = !hasContractItems
@@ -573,7 +606,7 @@ Source: PM voice note transcript (no site photos provided)
 Using the PM's verbal site update transcript below, produce a billing reconciliation by calling the reconcile_billing tool.
 
 ---
-${contractSection}
+${effectiveContractSection}
 STEP 1 — TRANSCRIPT ANALYSIS (internal reasoning)
 
 Before producing any billing output, carefully read the full transcript. For each statement:
@@ -720,7 +753,7 @@ ${pmUpdate || "<none provided>"}
 
 PM VOICE NOTE TRANSCRIPT:
 ${audioTranscript.trim()}
-${isRetry && retryReason === "incomplete" ? RETRY_PROMPT_SUFFIX_INCOMPLETE : isRetry ? RETRY_PROMPT_SUFFIX_TOOL_MISSING : ""}
+${strictRetrySection}${isRetry && retryReason === "incomplete" ? RETRY_PROMPT_SUFFIX_INCOMPLETE : isRetry ? RETRY_PROMPT_SUFFIX_TOOL_MISSING : ""}
 `.trim();
   }
 
@@ -734,7 +767,7 @@ Analysis date: ${today}
 Using the site photos${hasBoth ? " and PM voice note transcript" : ""} and (if provided) the PM update text, produce a billing reconciliation by calling the reconcile_billing tool.
 
 ---
-${contractSection}
+${effectiveContractSection}
 STEP 1 — IMAGE ANALYSIS (internal reasoning)
 
 Before producing any billing output, carefully examine every provided photo. For each image:
@@ -891,7 +924,7 @@ ${hasBoth ? `
 PM VOICE NOTE TRANSCRIPT:
 ${audioTranscript.trim()}
 ` : ""}
-${isRetry && retryReason === "incomplete" ? RETRY_PROMPT_SUFFIX_INCOMPLETE : isRetry ? RETRY_PROMPT_SUFFIX_TOOL_MISSING : ""}
+${strictRetrySection}${isRetry && retryReason === "incomplete" ? RETRY_PROMPT_SUFFIX_INCOMPLETE : isRetry ? RETRY_PROMPT_SUFFIX_TOOL_MISSING : ""}
 `.trim();
 }
 
@@ -968,8 +1001,10 @@ export async function POST(request: Request) {
     const today = new Date().toISOString().split("T")[0];
     const hasImages = images.length > 0;
 
+    const strictMode = body.strictMode === true;
+    const retryMissingLabels: string[] = [];
     const promptForAttempt = (isRetry: boolean, retryReason?: "tool_missing" | "incomplete") =>
-      buildPrompt({ projectName, today, pmUpdate, lineItemLabels, audioTranscript: audioTranscript || undefined, hasImages, isRetry, retryReason });
+      buildPrompt({ projectName, today, pmUpdate, lineItemLabels, audioTranscript: audioTranscript || undefined, hasImages, isRetry, retryReason, strictMode, retryMissingLabels: isRetry ? retryMissingLabels : [] });
 
     // Log what we send to the AI (no base64 — images omitted from log)
     console.log(

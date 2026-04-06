@@ -47,6 +47,7 @@ interface SuggestionReviewTableProps {
   contractItems: ContractItemRow[];
   analysisResult: AnalysisResultShape;
   lineItemResults?: LineItemResult[];
+  isStrictMode?: boolean;
   onApplied: () => void;
 }
 
@@ -80,6 +81,7 @@ export function SuggestionReviewTable({
   contractItems,
   analysisResult,
   lineItemResults,
+  isStrictMode = false,
   onApplied,
 }: SuggestionReviewTableProps) {
   const [applying, setApplying] = useState(false);
@@ -330,7 +332,12 @@ export function SuggestionReviewTable({
         <p className="text-sm text-rose-600">{applyError}</p>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-3">
+        {isStrictMode && applyableRows.length > 0 && applyableRows.every((r) => r.contractItemId != null && r.suggestedPct != null) && (
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+            Strict PB validated
+          </span>
+        )}
         <button
           type="button"
           onClick={handleApply}

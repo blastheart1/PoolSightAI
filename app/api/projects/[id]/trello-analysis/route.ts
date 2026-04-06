@@ -21,6 +21,63 @@ export const runtime = "nodejs";
 
 const MAX_IMAGES = 20;
 
+function mergeAnalysisRows(
+  firstData: Record<string, unknown>,
+  retryData: Record<string, unknown>,
+  orderedItems: Array<{ id: string; label: string; progressBefore: string | null }>
+): unknown[] {
+  const firstSections = Array.isArray(firstData.sections) ? (firstData.sections as Array<Record<string, unknown>>) : [];
+  const retrySections = Array.isArray(retryData.sections) ? (retryData.sections as Array<Record<string, unknown>>) : [];
+
+  // Collect all retry rows into a map by label
+  const retryRowByLabel = new Map<string, Record<string, unknown>>();
+  for (const section of retrySections) {
+    const rows = Array.isArray(section.rows) ? (section.rows as Array<Record<string, unknown>>) : [];
+    for (const row of rows) {
+      const label = typeof row.line_item === "string" ? row.line_item.toLowerCase().trim() : "";
+      if (label) retryRowByLabel.set(label, row);
+    }
+  }
+
+  // Build ordered item label set for quick lookup
+  const orderedLabelSet = new Set(orderedItems.map((i) => i.label.toLowerCase().trim()));
+
+  // Rebuild sections: keep first-call rows for valid items, substitute retry rows for failed items
+  const mergedSections: Array<Record<string, unknown>> = firstSections.map((section) => {
+    const rows = Array.isArray(section.rows) ? (section.rows as Array<Record<string, unknown>>) : [];
+    const mergedRows = rows.map((row) => {
+      const label = typeof row.line_item === "string" ? row.line_item.toLowerCase().trim() : "";
+      const retryRow = retryRowByLabel.get(label);
+      return retryRow ?? row;
+    });
+    return { ...section, rows: mergedRows };
+  });
+
+  // Append any retry rows whose items weren't in any first-call section
+  const firstSectionLabels = new Set(
+    firstSections.flatMap((s) =>
+      Array.isArray(s.rows)
+        ? (s.rows as Array<Record<string, unknown>>).map((r) =>
+            typeof r.line_item === "string" ? r.line_item.toLowerCase().trim() : ""
+          )
+        : []
+    )
+  );
+
+  const newRows: Array<Record<string, unknown>> = [];
+  for (const [label, row] of retryRowByLabel.entries()) {
+    if (!firstSectionLabels.has(label) && orderedLabelSet.has(label)) {
+      newRows.push(row);
+    }
+  }
+
+  if (newRows.length > 0) {
+    mergedSections.push({ id: "strict_pb_retry", title: "Strict PB Retry", rows: newRows });
+  }
+
+  return mergedSections;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -84,11 +141,13 @@ export async function POST(
       ? body.selectedItemIds.filter((s: unknown) => typeof s === "string")
       : [];
 
+    const strictPBMode = body.strictPBMode === true;
+
     // Build contract line item labels for the prompt
     let contractItemRows: { id: string; productService: string; progressOverallPct: string | null }[] = [];
 
     if (selectedItemIds.length > 0) {
-      contractItemRows = await db
+      const rows = await db
         .select({
           id: projectContractItems.id,
           productService: projectContractItems.productService,
@@ -96,8 +155,16 @@ export async function POST(
         })
         .from(projectContractItems)
         .where(inArray(projectContractItems.id, selectedItemIds));
-    } else {
-      // Fall back to the project's saved selected items
+
+      if (strictPBMode) {
+        // Preserve caller-specified order
+        const rowById = new Map(rows.map((r) => [r.id, r]));
+        contractItemRows = selectedItemIds.map((sid) => rowById.get(sid)).filter(Boolean) as typeof rows;
+      } else {
+        contractItemRows = rows;
+      }
+    } else if (!strictPBMode) {
+      // Fall back to saved selections only in normal mode
       const selectedRows = await db
         .select({ contractItemId: projectSelectedItems.contractItemId })
         .from(projectSelectedItems)
@@ -114,9 +181,46 @@ export async function POST(
           .from(projectContractItems)
           .where(inArray(projectContractItems.id, ids));
       }
+    } else {
+      // strictPBMode=true but no selectedItemIds
+      return NextResponse.json({ error: "selectedItemIds is required in Strict PB Mode" }, { status: 400 });
     }
 
     const lineItemLabels = contractItemRows.map((r) => r.productService).filter(Boolean);
+
+    // Strict PB Mode: build canonical ordered map
+    type CanonicalItem = { id: string; label: string; progressBefore: string | null };
+    const orderedItems: CanonicalItem[] = strictPBMode
+      ? contractItemRows.map((r) => ({ id: r.id, label: r.productService, progressBefore: r.progressOverallPct }))
+      : [];
+    const labelToId = new Map(orderedItems.map((i) => [i.label.toLowerCase().trim(), i.id]));
+
+    type RecoRow = { line_item: string; suggested_percent?: string; [key: string]: unknown };
+
+    function validateStrictRows(
+      items: CanonicalItem[],
+      aiRows: RecoRow[]
+    ): { valid: Set<string>; failed: CanonicalItem[] } {
+      const rowByLabel = new Map(aiRows.map((r) => [r.line_item.toLowerCase().trim(), r]));
+      const valid = new Set<string>();
+      const failed: CanonicalItem[] = [];
+      for (const item of items) {
+        const row = rowByLabel.get(item.label.toLowerCase().trim());
+        const hasPct = row && typeof row.suggested_percent === "string" && row.suggested_percent.trim() !== "";
+        if (hasPct) valid.add(item.label.toLowerCase().trim());
+        else failed.push(item);
+      }
+      return { valid, failed };
+    }
+
+    function flattenRows(analyzeJson: Record<string, unknown>): RecoRow[] {
+      const sections = analyzeJson.sections;
+      if (!Array.isArray(sections)) return [];
+      return sections.flatMap((s) => {
+        const rows = (s as Record<string, unknown>).rows;
+        return Array.isArray(rows) ? (rows as RecoRow[]) : [];
+      });
+    }
 
     // Fetch and optimize images via the proxy
     const base = getBaseOrigin(request.url);
@@ -228,43 +332,137 @@ export async function POST(
 
     // Call the AI analysis endpoint
     const analyzeUrl = `${base}/api/analyze`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 180_000);
+    const callAnalyze = async (
+      payloadExtra: Record<string, unknown>
+    ): Promise<{ ok: boolean; data: Record<string, unknown>; status: number }> => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 180_000);
+      try {
+        const analyzeRes = await fetch(analyzeUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payloadExtra),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        const data = (await analyzeRes.json().catch(() => ({}))) as Record<string, unknown>;
+        return { ok: analyzeRes.ok, data, status: analyzeRes.status };
+      } catch (err) {
+        clearTimeout(timeoutId);
+        const isTimeout = err instanceof Error && err.name === "AbortError";
+        return {
+          ok: false,
+          data: {
+            error: isTimeout ? "Analysis timed out" : "Analysis request failed",
+            errorCode: isTimeout ? "timeout" : "analyze_request_failed",
+          },
+          status: 502,
+        };
+      }
+    };
+
+    const basePayload = {
+      images,
+      projectName: project.name,
+      pmUpdate: pmUpdate || undefined,
+      lineItemLabels: lineItemLabels.length ? lineItemLabels : undefined,
+      strictMode: strictPBMode,
+    };
 
     let analyzeJson: Record<string, unknown> = {};
-    try {
-      const analyzeRes = await fetch(analyzeUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          images,
-          projectName: project.name,
-          pmUpdate: pmUpdate || undefined,
-          lineItemLabels: lineItemLabels.length ? lineItemLabels : undefined,
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      analyzeJson = (await analyzeRes.json().catch(() => ({}))) as Record<string, unknown>;
+    let validRowLabels = new Set<string>();
 
-      if (!analyzeRes.ok) {
+    if (strictPBMode && orderedItems.length > 0) {
+      // First call
+      const first = await callAnalyze(basePayload);
+      if (!first.ok) {
         return NextResponse.json(
-          analyzeJson.error
-            ? { error: analyzeJson.error, ...analyzeJson }
+          first.data.error
+            ? { error: first.data.error, ...first.data }
             : { error: "AI analysis failed", errorCode: "analyze_error" },
-          { status: analyzeRes.status >= 400 ? analyzeRes.status : 502 }
+          { status: first.status >= 400 ? first.status : 502 }
         );
       }
-    } catch (err) {
-      clearTimeout(timeoutId);
-      const isTimeout = err instanceof Error && err.name === "AbortError";
-      return NextResponse.json(
-        {
-          error: isTimeout ? "Analysis timed out" : "Analysis request failed",
-          errorCode: isTimeout ? "timeout" : "analyze_request_failed",
-        },
-        { status: 502 }
-      );
+
+      const firstRows = flattenRows(first.data);
+      const { valid, failed } = validateStrictRows(orderedItems, firstRows);
+      validRowLabels = valid;
+
+      if (failed.length === 0) {
+        // All good first try
+        analyzeJson = first.data;
+      } else {
+        // Partial retry: only send failed items
+        const retryLabels = failed.map((i) => i.label);
+        const retryPayload = {
+          ...basePayload,
+          lineItemLabels: retryLabels,
+          retryMissingLabels: retryLabels,
+        };
+        const retry = await callAnalyze(retryPayload);
+
+        if (!retry.ok) {
+          // Return whatever we got from first call as partial results on retry network failure
+          return NextResponse.json(
+            {
+              error: "AI retry failed",
+              errorCode: "line_item_mapping_mismatch",
+              detail: {
+                expectedCount: orderedItems.length,
+                resolvedCount: valid.size,
+                missingLabels: retryLabels,
+                rowsWithoutSuggestedPercent: [],
+                extraLabels: [],
+                partialResults: first.data.analysisResult ?? first.data,
+              },
+            },
+            { status: 422 }
+          );
+        }
+
+        const retryRows = flattenRows(retry.data);
+        const retryValidation = validateStrictRows(failed, retryRows);
+
+        if (retryValidation.failed.length > 0) {
+          const stillMissing = retryValidation.failed.map((i) => i.label);
+          return NextResponse.json(
+            {
+              error: "AI output did not match selected line items after retry",
+              errorCode: "line_item_mapping_mismatch",
+              detail: {
+                expectedCount: orderedItems.length,
+                resolvedCount: valid.size + retryValidation.valid.size,
+                missingLabels: stillMissing,
+                rowsWithoutSuggestedPercent: [],
+                extraLabels: [],
+                partialResults: first.data,
+              },
+            },
+            { status: 422 }
+          );
+        }
+
+        // Merge: take original sections from first call, then inject retry rows for failed items
+        const mergedSections = mergeAnalysisRows(first.data, retry.data, orderedItems);
+        analyzeJson = { ...first.data, sections: mergedSections };
+
+        // Update valid set
+        for (const item of failed) {
+          validRowLabels.add(item.label.toLowerCase().trim());
+        }
+      }
+    } else {
+      // Normal mode
+      const result = await callAnalyze(basePayload);
+      if (!result.ok) {
+        return NextResponse.json(
+          result.data.error
+            ? { error: result.data.error, ...result.data }
+            : { error: "AI analysis failed", errorCode: "analyze_error" },
+          { status: result.status >= 400 ? result.status : 502 }
+        );
+      }
+      analyzeJson = result.data;
     }
 
     const reconciliationResult = analyzeJson as Record<string, unknown>;
@@ -325,7 +523,11 @@ export async function POST(
         for (const row of rows) {
           const r = row as Record<string, unknown>;
           const lineItem = typeof r.line_item === "string" ? r.line_item : "";
-          const match = byProductService.get(lineItem.toLowerCase().trim());
+          const matchKey = lineItem.toLowerCase().trim();
+          const matchId = strictPBMode ? labelToId.get(matchKey) : undefined;
+          const match = matchId
+            ? { id: matchId, progressBefore: contractItemRows.find((r) => r.id === matchId)?.progressOverallPct ?? null }
+            : byProductService.get(matchKey);
           await db.insert(aiAnalysisResultLineItems).values({
             analysisResultId: result.id,
             contractItemId: match?.id ?? null,

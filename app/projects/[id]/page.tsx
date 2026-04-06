@@ -445,6 +445,9 @@ export default function ProjectDetailPage({
   const [pmUpdate, setPmUpdate] = useState("");
   const [imageSourceTab, setImageSourceTab] = useState<"upload" | "trello" | "voice">("upload");
   const [trelloImages, setTrelloImages] = useState<SelectedTrelloImage[]>([]);
+  const [strictPBMode, setStrictPBMode] = useState(false);
+  const [analysisRetrying, setAnalysisRetrying] = useState(false);
+  const [analysisRetryCount, setAnalysisRetryCount] = useState(0);
   const [audioTranscript, setAudioTranscript] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [parseFile, setParseFile] = useState<File | null>(null);
@@ -797,6 +800,8 @@ export default function ProjectDetailPage({
       return;
     }
     setAnalysisLoading(true);
+    setAnalysisRetrying(false);
+    setAnalysisRetryCount(0);
     setAnalysisError("");
     setAnalysisResult(null);
     setSavedEntryId(null);
@@ -808,19 +813,44 @@ export default function ProjectDetailPage({
         body: JSON.stringify({
           trelloListId: linkedList.listId,
           imageUrls: trelloImages.map((i) => i.url),
+          selectedItemIds: project.selectedLineItemIds,
+          strictPBMode,
           pmUpdate: pmUpdate || undefined,
           ecoMode: "balanced",
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Analysis failed");
+      if (!res.ok) {
+        if (res.status === 422 && data.errorCode === "line_item_mapping_mismatch") {
+          setAnalysisError(
+            `Strict PB Mode: ${data.detail?.missingLabels?.length ?? 0} item(s) could not be mapped after retry. ` +
+            (data.detail?.missingLabels?.length
+              ? `Missing: ${(data.detail.missingLabels as string[]).slice(0, 2).join(", ")}${data.detail.missingLabels.length > 2 ? "…" : ""}`
+              : "")
+          );
+          // Still show partial results if any were returned
+          if (data.detail?.partialResults) {
+            setAnalysisResult(data.detail.partialResults);
+          }
+          return;
+        }
+        throw new Error(data.error ?? "Analysis failed");
+      }
+      if (data.retrying) {
+        setAnalysisRetrying(true);
+        setAnalysisRetryCount(data.retryCount ?? 0);
+      }
       setAnalysisResult(data.analysisResult);
       setSavedEntryId(data.entryId ?? null);
+      if (data.lineItemResults) {
+        setSavedLineItemResults(data.lineItemResults);
+      }
       await loadAnalyses();
     } catch (e) {
       setAnalysisError(e instanceof Error ? e.message : "Analysis failed");
     } finally {
       setAnalysisLoading(false);
+      setAnalysisRetrying(false);
     }
   };
 
@@ -1155,16 +1185,35 @@ export default function ProjectDetailPage({
                 </button>
               )}
               {imageSourceTab === "trello" && trelloLinkedLists.length > 0 && (
-                <button
-                  type="button"
-                  onClick={runTrelloAnalysis}
-                  disabled={analysisLoading || trelloImages.length === 0}
-                  className="rounded-lg bg-sky-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
-                >
-                  {analysisLoading
-                    ? "Analyzing…"
-                    : `Analyze ${trelloImages.length} image${trelloImages.length !== 1 ? "s" : ""}`}
-                </button>
+                <>
+                  <div className="flex w-full items-center gap-2">
+                    <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={strictPBMode}
+                        onChange={(e) => setStrictPBMode(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                      />
+                      <span className="font-medium">Strict PB Mode</span>
+                      <span className="text-xs text-slate-400">(1 row per selected item)</span>
+                    </label>
+                  </div>
+                  {analysisRetrying && (
+                    <p className="text-xs text-amber-600">
+                      Retrying {analysisRetryCount} item(s) that failed mapping…
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={runTrelloAnalysis}
+                    disabled={analysisLoading || trelloImages.length === 0}
+                    className="rounded-lg bg-sky-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+                  >
+                    {analysisLoading
+                      ? analysisRetrying ? `Retrying ${analysisRetryCount} item(s)…` : "Analyzing…"
+                      : `Analyze ${trelloImages.length} image${trelloImages.length !== 1 ? "s" : ""}`}
+                  </button>
+                </>
               )}
               {imageSourceTab === "voice" && (
                 <button
@@ -1198,6 +1247,7 @@ export default function ProjectDetailPage({
                   contractItems={project?.contractItems ?? []}
                   analysisResult={analysisResult as AnalysisResultShape}
                   lineItemResults={savedLineItemResults.length > 0 ? savedLineItemResults : undefined}
+                  isStrictMode={strictPBMode && savedLineItemResults.length > 0}
                   onApplied={() => { load(); loadAnalyses(); }}
                 />
               </>
