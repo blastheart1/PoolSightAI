@@ -316,10 +316,10 @@ export function SuggestionReviewTable({
                       {row.status}
                     </span>
                   </td>
-                  <td className="max-w-[300px] px-3 py-2">
-                    <p className="line-clamp-2 text-xs text-slate-600" title={row.notes}>
+                  <td className="px-3 py-2">
+                    <div className="max-h-32 w-64 overflow-y-auto text-xs text-slate-600 leading-relaxed">
                       {row.notes || "—"}
-                    </p>
+                    </div>
                   </td>
                 </tr>
               );
