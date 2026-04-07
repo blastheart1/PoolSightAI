@@ -186,12 +186,20 @@ export async function POST(
       return NextResponse.json({ error: "selectedItemIds is required in Strict PB Mode" }, { status: 400 });
     }
 
-    const lineItemLabels = contractItemRows.map((r) => r.productService).filter(Boolean);
+    // Must match the truncation applied in analyze/route.ts (MAX_LINE_ITEM_LABEL_LENGTH = 150)
+    const MAX_LABEL_LENGTH = 150;
+    const truncateLabel = (s: string) =>
+      s.length > MAX_LABEL_LENGTH ? s.slice(0, MAX_LABEL_LENGTH - 3).trim() + "..." : s;
 
-    // Strict PB Mode: build canonical ordered map
+    const lineItemLabels = contractItemRows
+      .map((r) => r.productService)
+      .filter(Boolean)
+      .map(truncateLabel);
+
+    // Strict PB Mode: build canonical ordered map using truncated labels (same as what AI sees)
     type CanonicalItem = { id: string; label: string; progressBefore: string | null };
     const orderedItems: CanonicalItem[] = strictPBMode
-      ? contractItemRows.map((r) => ({ id: r.id, label: r.productService, progressBefore: r.progressOverallPct }))
+      ? contractItemRows.map((r) => ({ id: r.id, label: truncateLabel(r.productService), progressBefore: r.progressOverallPct }))
       : [];
     const labelToId = new Map(orderedItems.map((i) => [i.label.toLowerCase().trim(), i.id]));
 
