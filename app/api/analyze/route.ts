@@ -491,23 +491,23 @@ const RETRY_PROMPT_SUFFIX_INCOMPLETE =
 
 const STRICT_OUTPUT_CONTRACT = (labels: string[]) => `
 
-STRICT OUTPUT CONTRACT (REQUIRED):
-You are given EXACT_SELECTED_LINE_ITEMS below — these are the ONLY items to analyze.
-Return EXACTLY one row per item listed, in the SAME ORDER as listed.
-Copy the line_item text EXACTLY as given — do not paraphrase, truncate, or reorder.
-suggested_percent is REQUIRED on every row — provide a best-supported value even if uncertain, then set status to "verify".
-Do not add rows, omit rows, merge rows, or split rows.
+STRICT OUTPUT CONTRACT (REQUIRED — INDEX-BASED ROWS):
+You are given SELECTED_LINE_ITEMS below, each prefixed with a number.
+Return EXACTLY one row per item, in the SAME ORDER.
+Set line_item to ONLY the item number (e.g. "1", "2", "3") — do NOT copy the label text.
+suggested_percent is REQUIRED on every row. If uncertain, provide a best estimate and set status to "verify".
+Do not add, omit, merge, split, or reorder rows.
 
-EXACT_SELECTED_LINE_ITEMS:
+SELECTED_LINE_ITEMS:
 ${labels.map((l, i) => `${i + 1}. ${l}`).join("\n")}
 `;
 
-const STRICT_RETRY_SUFFIX = (missingLabels: string[]) => `
+const STRICT_RETRY_SUFFIX = (missingIndexes: string[]) => `
 
-PARTIAL RETRY — You are being called again because some items were missing from your previous output.
-Return ONLY rows for these missing items (do not repeat already-correct rows):
-${missingLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}
-Each row must have suggested_percent filled in. Use "verify" status if uncertain.
+PARTIAL RETRY — The following item numbers were missing from your previous output.
+Return ONLY rows for these item numbers (do not repeat already-correct rows):
+${missingIndexes.join(", ")}
+Set line_item to ONLY the item number (e.g. "1", "2"). suggested_percent is required.
 `;
 
 /** Tool output is valid for display only if it has non-empty sections and key_actions. */

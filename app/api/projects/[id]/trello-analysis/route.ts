@@ -196,36 +196,18 @@ export async function POST(
       .filter(Boolean)
       .map(truncateLabel);
 
-    // Strict PB Mode: build canonical ordered map using truncated labels (same as what AI sees)
+    // Strict PB Mode: index-based matching — AI sets line_item to "1", "2", etc.
+    // Canonical labels from the ordered map are substituted at persist time.
     type CanonicalItem = { id: string; label: string; progressBefore: string | null };
     const orderedItems: CanonicalItem[] = strictPBMode
-      ? contractItemRows.map((r) => ({ id: r.id, label: truncateLabel(r.productService), progressBefore: r.progressOverallPct }))
+      ? contractItemRows.map((r) => ({ id: r.id, label: r.productService, progressBefore: r.progressOverallPct }))
       : [];
-    const labelToId = new Map(orderedItems.map((i) => [i.label.toLowerCase().trim(), i.id]));
 
-    // Prefix length for fuzzy label matching — handles AI rephrasing of long truncated labels
-    const LABEL_PREFIX_LEN = 80;
+    // 1-based index → canonical item (e.g. "1" → orderedItems[0])
+    const itemByIndex = new Map(orderedItems.map((item, i) => [String(i + 1), item]));
 
-    function labelsMatch(canonical: string, aiLabel: string): boolean {
-      const a = canonical.toLowerCase().trim();
-      const b = aiLabel.toLowerCase().trim();
-      if (a === b) return true;
-      // For long labels, match on shared prefix to tolerate AI punctuation/phrasing differences
-      if (a.length >= LABEL_PREFIX_LEN && b.length >= LABEL_PREFIX_LEN) {
-        return a.slice(0, LABEL_PREFIX_LEN) === b.slice(0, LABEL_PREFIX_LEN);
-      }
-      return false;
-    }
-
-    function findIdByLabel(aiLabel: string): string | undefined {
-      // Exact match first
-      const exact = labelToId.get(aiLabel.toLowerCase().trim());
-      if (exact) return exact;
-      // Prefix fallback
-      for (const item of orderedItems) {
-        if (labelsMatch(item.label, aiLabel)) return item.id;
-      }
-      return undefined;
+    function findItemByAiRow(lineItem: string): CanonicalItem | undefined {
+      return itemByIndex.get(lineItem.trim());
     }
 
     type RecoRow = { line_item: string; suggested_percent?: string; [key: string]: unknown };
@@ -233,15 +215,17 @@ export async function POST(
     function validateStrictRows(
       items: CanonicalItem[],
       aiRows: RecoRow[]
-    ): { valid: Set<string>; failed: CanonicalItem[] } {
+    ): { valid: Set<string>; failed: Array<{ item: CanonicalItem; index: number }> } {
+      const rowByIndex = new Map(aiRows.map((r) => [r.line_item.trim(), r]));
       const valid = new Set<string>();
-      const failed: CanonicalItem[] = [];
-      for (const item of items) {
-        const matchingRow = aiRows.find((r) => labelsMatch(item.label, r.line_item));
-        const hasPct = matchingRow && typeof matchingRow.suggested_percent === "string" && matchingRow.suggested_percent.trim() !== "";
-        if (hasPct) valid.add(item.label.toLowerCase().trim());
-        else failed.push(item);
-      }
+      const failed: Array<{ item: CanonicalItem; index: number }> = [];
+      items.forEach((item, i) => {
+        const idx = String(i + 1);
+        const row = rowByIndex.get(idx);
+        const hasPct = row && typeof row.suggested_percent === "string" && row.suggested_percent.trim() !== "";
+        if (hasPct) valid.add(idx);
+        else failed.push({ item, index: i + 1 });
+      });
       return { valid, failed };
     }
 
@@ -428,34 +412,24 @@ export async function POST(
 
       const firstRows = flattenRows(first.data);
 
-      // Debug: log canonical labels vs AI output labels for matching diagnosis
-      console.log(JSON.stringify({
-        event: "strict_pb_label_match_debug",
-        projectId,
-        canonicalLabels: orderedItems.map((i) => ({ id: i.id, label: i.label, len: i.label.length })),
-        aiOutputLabels: firstRows.map((r) => ({ line_item: r.line_item, len: r.line_item.length, has_pct: !!r.suggested_percent })),
-        rawSections: JSON.stringify(first.data.sections).slice(0, 500),
-        confidence: first.data.confidence,
-      }));
-
       const { valid, failed } = validateStrictRows(orderedItems, firstRows);
       validRowLabels = valid;
 
       if (failed.length === 0) {
-        // All good first try
         analyzeJson = first.data;
       } else {
-        // Partial retry: only send failed items
-        const retryLabels = failed.map((i) => i.label);
+        // Partial retry: send only failed items re-numbered from 1
+        const failedItems = failed.map((f) => f.item);
+        const retryLabels = failedItems.map((i) => i.label).map(truncateLabel);
+        const retryIndexes = failed.map((f) => String(f.index));
         const retryPayload = {
           ...basePayload,
           lineItemLabels: retryLabels,
-          retryMissingLabels: retryLabels,
+          retryMissingLabels: retryIndexes,
         };
         const retry = await callAnalyze(retryPayload);
 
         if (!retry.ok) {
-          // Return whatever we got from first call as partial results on retry network failure
           return NextResponse.json(
             {
               error: "AI retry failed",
@@ -463,9 +437,7 @@ export async function POST(
               detail: {
                 expectedCount: orderedItems.length,
                 resolvedCount: valid.size,
-                missingLabels: retryLabels,
-                rowsWithoutSuggestedPercent: [],
-                extraLabels: [],
+                missingLabels: failedItems.map((i) => i.label),
                 partialResults: first.data.analysisResult ?? first.data,
               },
             },
@@ -474,10 +446,22 @@ export async function POST(
         }
 
         const retryRows = flattenRows(retry.data);
-        const retryValidation = validateStrictRows(failed, retryRows);
+        // Retry rows are re-indexed from 1 — remap them back to original indexes
+        const remappedRetryRows = retryRows.map((r) => {
+          const retryIdx = parseInt(r.line_item.trim(), 10);
+          if (!isNaN(retryIdx) && retryIdx >= 1 && retryIdx <= failed.length) {
+            return { ...r, line_item: String(failed[retryIdx - 1].index) };
+          }
+          return r;
+        });
+
+        const retryValidation = validateStrictRows(failedItems.map((item, i) => ({
+          ...item,
+          // temporarily assign sequential indexes matching retry payload
+          _retryIndex: i + 1,
+        })) as CanonicalItem[], remappedRetryRows);
 
         if (retryValidation.failed.length > 0) {
-          const stillMissing = retryValidation.failed.map((i) => i.label);
           return NextResponse.json(
             {
               error: "AI output did not match selected line items after retry",
@@ -485,9 +469,7 @@ export async function POST(
               detail: {
                 expectedCount: orderedItems.length,
                 resolvedCount: valid.size + retryValidation.valid.size,
-                missingLabels: stillMissing,
-                rowsWithoutSuggestedPercent: [],
-                extraLabels: [],
+                missingLabels: retryValidation.failed.map((f) => f.item.label),
                 partialResults: first.data,
               },
             },
@@ -495,13 +477,15 @@ export async function POST(
           );
         }
 
-        // Merge: take original sections from first call, then inject retry rows for failed items
-        const mergedSections = mergeAnalysisRows(first.data, retry.data, orderedItems);
-        analyzeJson = { ...first.data, sections: mergedSections };
+        // Merge first-call rows + remapped retry rows into one flat section
+        const allRows = [...firstRows, ...remappedRetryRows];
+        analyzeJson = {
+          ...first.data,
+          rawSections: [{ id: "strict_pb", title: "Strict PB Analysis", rows: allRows }],
+        };
 
-        // Update valid set
-        for (const item of failed) {
-          validRowLabels.add(item.label.toLowerCase().trim());
+        for (const f of failed) {
+          validRowLabels.add(String(f.index));
         }
       }
     } else {
@@ -575,12 +559,15 @@ export async function POST(
         if (!Array.isArray(rows)) continue;
         for (const row of rows) {
           const r = row as Record<string, unknown>;
-          const lineItem = typeof r.line_item === "string" ? r.line_item : "";
-          const matchKey = lineItem.toLowerCase().trim();
-          const matchId = strictPBMode ? findIdByLabel(lineItem) : undefined;
-          const match = matchId
-            ? { id: matchId, progressBefore: contractItemRows.find((r) => r.id === matchId)?.progressOverallPct ?? null }
-            : byProductService.get(matchKey);
+          const rawLineItem = typeof r.line_item === "string" ? r.line_item : "";
+
+          // In strict mode: line_item is an index ("1", "2"...) — resolve to canonical item
+          const canonicalItem = strictPBMode ? findItemByAiRow(rawLineItem) : undefined;
+          const lineItem = canonicalItem ? canonicalItem.label : rawLineItem;
+          const match = canonicalItem
+            ? { id: canonicalItem.id, progressBefore: canonicalItem.progressBefore }
+            : byProductService.get(lineItem.toLowerCase().trim());
+
           await db.insert(aiAnalysisResultLineItems).values({
             analysisResultId: result.id,
             contractItemId: match?.id ?? null,
