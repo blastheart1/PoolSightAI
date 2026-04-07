@@ -246,7 +246,9 @@ export async function POST(
     }
 
     function flattenRows(analyzeJson: Record<string, unknown>): RecoRow[] {
-      const sections = analyzeJson.sections;
+      // Prefer rawSections (pre-normalization) — normalizeResponse filters through
+      // SECTION_TEMPLATES and drops sections with unrecognised ids (e.g. "excavation_grading")
+      const sections = analyzeJson.rawSections ?? analyzeJson.sections;
       if (!Array.isArray(sections)) return [];
       return sections.flatMap((s) => {
         const rows = (s as Record<string, unknown>).rows;
@@ -432,6 +434,8 @@ export async function POST(
         projectId,
         canonicalLabels: orderedItems.map((i) => ({ id: i.id, label: i.label, len: i.label.length })),
         aiOutputLabels: firstRows.map((r) => ({ line_item: r.line_item, len: r.line_item.length, has_pct: !!r.suggested_percent })),
+        rawSections: JSON.stringify(first.data.sections).slice(0, 500),
+        confidence: first.data.confidence,
       }));
 
       const { valid, failed } = validateStrictRows(orderedItems, firstRows);

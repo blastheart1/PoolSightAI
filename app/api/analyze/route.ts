@@ -1244,6 +1244,10 @@ export async function POST(request: Request) {
     return new Response(
       JSON.stringify({
         ...normalized,
+        // Include raw sections from tool input for strict mode callers — normalizeResponse
+        // filters sections through SECTION_TEMPLATES which can drop custom section ids
+        // (e.g. "excavation_grading") that don't match any known template.
+        rawSections: Array.isArray(toolInput.sections) ? toolInput.sections : undefined,
         meta: {
           ok: true,
           requestId,
