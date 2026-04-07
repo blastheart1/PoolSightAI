@@ -210,6 +210,24 @@ export const aiAnalysisResultLineItems = pgTable(
   })
 );
 
+// Saved PM voice note transcripts — standalone saves, not tied to an analysis run
+export const projectVoiceNotes = pgTable(
+  "project_voice_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    transcript: text("transcript").notNull(),
+    label: varchar("label", { length: 255 }),
+    wordCount: integer("word_count"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    projectIdIdx: index("project_voice_notes_project_id_idx").on(table.projectId),
+  })
+);
+
 // ──────────────────────────────────────────────────────────────────────────
 // PERMITS MODULE
 // ──────────────────────────────────────────────────────────────────────────

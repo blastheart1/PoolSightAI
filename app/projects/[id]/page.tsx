@@ -464,6 +464,7 @@ export default function ProjectDetailPage({
   const [reportDetailLoading, setReportDetailLoading] = useState(false);
   const [reportLineItemResults, setReportLineItemResults] = useState<LineItemResult[]>([]);
   const [reportAudioTranscript, setReportAudioTranscript] = useState<string | null>(null);
+  const [voiceNotes, setVoiceNotes] = useState<{ id: string; label: string | null; wordCount: number | null; transcript: string; createdAt: string }[]>([]);
   const [editingDetails, setEditingDetails] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -527,12 +528,23 @@ export default function ProjectDetailPage({
     }
   }, [id]);
 
+  const loadVoiceNotes = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/projects/${id}/voice-notes`, { cache: "no-store" });
+      if (res.ok) setVoiceNotes(await res.json());
+    } catch { /* non-critical */ }
+  }, [id]);
+
   useEffect(() => {
     load();
   }, [load]);
   useEffect(() => {
     loadAnalyses();
   }, [loadAnalyses]);
+  useEffect(() => {
+    loadVoiceNotes();
+  }, [loadVoiceNotes]);
 
   const handleSelectionChange = async (selectedLineItemIds: string[]) => {
     if (!id || !project) return;
@@ -1148,10 +1160,41 @@ export default function ProjectDetailPage({
               </div>
             )}
 
+            {imageSourceTab === "trello" && voiceNotes.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Saved voice notes
+                </p>
+                <ul className="space-y-1.5">
+                  {voiceNotes.map((note) => (
+                    <li key={note.id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-800">
+                          {note.label ?? "Voice note"}
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {new Date(note.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          {note.wordCount ? ` · ${note.wordCount} words` : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPmUpdate(note.transcript)}
+                        className="flex-shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 transition"
+                      >
+                        Use
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {imageSourceTab === "voice" && (
               <div className="mt-4">
                 <AudioTranscriber
-                  onTranscriptChange={setAudioTranscript}
+                  projectId={id!}
+                  onTranscriptChange={(t) => { setAudioTranscript(t); loadVoiceNotes(); }}
                   disabled={analysisLoading}
                 />
               </div>

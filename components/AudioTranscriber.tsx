@@ -1,21 +1,24 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { MicrophoneIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
+import { MicrophoneIcon, DocumentTextIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
 
 const ACCEPTED_TYPES = ".mp3,.m4a,.wav,.ogg,.opus,.webm,.flac,.mpeg,.mpga,.mp4";
 const MAX_MB = 25;
 
 interface AudioTranscriberProps {
+  projectId: string;
   onTranscriptChange: (transcript: string) => void;
   disabled?: boolean;
 }
 
-export function AudioTranscriber({ onTranscriptChange, disabled }: AudioTranscriberProps) {
+export function AudioTranscriber({ projectId, onTranscriptChange, disabled }: AudioTranscriberProps) {
   const [file, setFile] = useState<File | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState("");
   const [transcript, setTranscript] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -27,20 +30,20 @@ export function AudioTranscriber({ onTranscriptChange, disabled }: AudioTranscri
     }
     setFile(selected);
     setError("");
+    setSaved(false);
   };
 
   const handleTranscribe = async () => {
     if (!file) return;
     setTranscribing(true);
     setError("");
+    setSaved(false);
     try {
       const formData = new FormData();
       formData.append("audio", file);
       const res = await fetch("/api/transcribe", { method: "POST", body: formData });
       const data = await res.json().catch(() => ({})) as { transcript?: string; error?: string };
-      if (!res.ok) {
-        throw new Error(data.error ?? "Transcription failed");
-      }
+      if (!res.ok) throw new Error(data.error ?? "Transcription failed");
       const text = data.transcript ?? "";
       setTranscript(text);
       onTranscriptChange(text);
@@ -51,8 +54,32 @@ export function AudioTranscriber({ onTranscriptChange, disabled }: AudioTranscri
     }
   };
 
+  const handleSave = async () => {
+    if (!transcript.trim()) return;
+    setSaving(true);
+    setError("");
+    try {
+      const label = file ? file.name.replace(/\.[^/.]+$/, "") : undefined;
+      const res = await fetch(`/api/projects/${projectId}/voice-notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript, label }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(d.error ?? "Failed to save");
+      }
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save voice note");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setTranscript(e.target.value);
+    setSaved(false);
     onTranscriptChange(e.target.value);
   };
 
@@ -60,6 +87,7 @@ export function AudioTranscriber({ onTranscriptChange, disabled }: AudioTranscri
     setFile(null);
     setTranscript("");
     setError("");
+    setSaved(false);
     onTranscriptChange("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -113,7 +141,7 @@ export function AudioTranscriber({ onTranscriptChange, disabled }: AudioTranscri
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      {/* Transcript textarea — shown after transcription OR for manual entry */}
+      {/* Transcript textarea */}
       <div className="space-y-1">
         <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
           <DocumentTextIcon className="h-3.5 w-3.5" aria-hidden />
@@ -128,11 +156,33 @@ export function AudioTranscriber({ onTranscriptChange, disabled }: AudioTranscri
           placeholder="Upload an audio file and click Transcribe, or type/paste a PM note here…"
           className="w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-inner focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600 disabled:opacity-60"
         />
-        {transcript && (
-          <p className="text-right text-[11px] text-slate-400">
-            {transcript.split(/\s+/).filter(Boolean).length} words
-          </p>
-        )}
+        <div className="flex items-center justify-between">
+          {transcript ? (
+            <p className="text-[11px] text-slate-400">
+              {transcript.split(/\s+/).filter(Boolean).length} words
+            </p>
+          ) : <span />}
+          {transcript && (
+            <div className="flex items-center gap-2">
+              {saved && (
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
+                  <CheckCircleIcon className="h-3.5 w-3.5" aria-hidden />
+                  Saved
+                </span>
+              )}
+              {!saved && (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving || disabled}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 transition"
+                >
+                  {saving ? "Saving…" : "Save voice note"}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
