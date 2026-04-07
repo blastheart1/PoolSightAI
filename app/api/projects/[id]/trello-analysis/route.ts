@@ -203,18 +203,42 @@ export async function POST(
       : [];
     const labelToId = new Map(orderedItems.map((i) => [i.label.toLowerCase().trim(), i.id]));
 
+    // Prefix length for fuzzy label matching — handles AI rephrasing of long truncated labels
+    const LABEL_PREFIX_LEN = 80;
+
+    function labelsMatch(canonical: string, aiLabel: string): boolean {
+      const a = canonical.toLowerCase().trim();
+      const b = aiLabel.toLowerCase().trim();
+      if (a === b) return true;
+      // For long labels, match on shared prefix to tolerate AI punctuation/phrasing differences
+      if (a.length >= LABEL_PREFIX_LEN && b.length >= LABEL_PREFIX_LEN) {
+        return a.slice(0, LABEL_PREFIX_LEN) === b.slice(0, LABEL_PREFIX_LEN);
+      }
+      return false;
+    }
+
+    function findIdByLabel(aiLabel: string): string | undefined {
+      // Exact match first
+      const exact = labelToId.get(aiLabel.toLowerCase().trim());
+      if (exact) return exact;
+      // Prefix fallback
+      for (const item of orderedItems) {
+        if (labelsMatch(item.label, aiLabel)) return item.id;
+      }
+      return undefined;
+    }
+
     type RecoRow = { line_item: string; suggested_percent?: string; [key: string]: unknown };
 
     function validateStrictRows(
       items: CanonicalItem[],
       aiRows: RecoRow[]
     ): { valid: Set<string>; failed: CanonicalItem[] } {
-      const rowByLabel = new Map(aiRows.map((r) => [r.line_item.toLowerCase().trim(), r]));
       const valid = new Set<string>();
       const failed: CanonicalItem[] = [];
       for (const item of items) {
-        const row = rowByLabel.get(item.label.toLowerCase().trim());
-        const hasPct = row && typeof row.suggested_percent === "string" && row.suggested_percent.trim() !== "";
+        const matchingRow = aiRows.find((r) => labelsMatch(item.label, r.line_item));
+        const hasPct = matchingRow && typeof matchingRow.suggested_percent === "string" && matchingRow.suggested_percent.trim() !== "";
         if (hasPct) valid.add(item.label.toLowerCase().trim());
         else failed.push(item);
       }
@@ -369,6 +393,14 @@ export async function POST(
       }
     };
 
+    if (strictPBMode) {
+      console.log(JSON.stringify({
+        event: "strict_pb_payload_labels",
+        projectId,
+        lineItemLabels: lineItemLabels.map((l) => ({ label: l, len: l.length })),
+      }));
+    }
+
     const basePayload = {
       images,
       projectName: project.name,
@@ -393,6 +425,15 @@ export async function POST(
       }
 
       const firstRows = flattenRows(first.data);
+
+      // Debug: log canonical labels vs AI output labels for matching diagnosis
+      console.log(JSON.stringify({
+        event: "strict_pb_label_match_debug",
+        projectId,
+        canonicalLabels: orderedItems.map((i) => ({ id: i.id, label: i.label, len: i.label.length })),
+        aiOutputLabels: firstRows.map((r) => ({ line_item: r.line_item, len: r.line_item.length, has_pct: !!r.suggested_percent })),
+      }));
+
       const { valid, failed } = validateStrictRows(orderedItems, firstRows);
       validRowLabels = valid;
 
@@ -532,7 +573,7 @@ export async function POST(
           const r = row as Record<string, unknown>;
           const lineItem = typeof r.line_item === "string" ? r.line_item : "";
           const matchKey = lineItem.toLowerCase().trim();
-          const matchId = strictPBMode ? labelToId.get(matchKey) : undefined;
+          const matchId = strictPBMode ? findIdByLabel(lineItem) : undefined;
           const match = matchId
             ? { id: matchId, progressBefore: contractItemRows.find((r) => r.id === matchId)?.progressOverallPct ?? null }
             : byProductService.get(matchKey);
