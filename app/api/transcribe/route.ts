@@ -78,8 +78,10 @@ export async function POST(request: NextRequest) {
   try {
     const openai = new OpenAI({ apiKey });
 
-    // Whisper needs the correct extension in the filename for format detection
-    const whisperExt = extMimeMap[ext] ? ext : (ext || "mp3");
+    // Whisper needs the correct extension in the filename for format detection.
+    // .opus is an OGG container — Whisper accepts ogg but not opus as an extension.
+    const whisperExtRemap: Record<string, string> = { opus: "ogg" };
+    const whisperExt = whisperExtRemap[ext] ?? (extMimeMap[ext] ? ext : (ext || "mp3"));
     const whisperFile = new File([await file.arrayBuffer()], `audio.${whisperExt}`, {
       type: resolvedMime || "audio/mpeg",
     });
