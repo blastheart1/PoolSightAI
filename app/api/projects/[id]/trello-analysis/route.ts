@@ -543,7 +543,8 @@ export async function POST(
       return NextResponse.json({ error: "Failed to save analysis result" }, { status: 500 });
     }
 
-    // Save per-row line items with progressBefore snapshot
+    // Save per-row line items with progressBefore snapshot.
+    // In strict mode use rawSections (index-based rows); in normal mode use normalized sections.
     const byProductService = new Map(
       contractItemRows.map((r) => [
         r.productService?.toLowerCase().trim() ?? "",
@@ -551,9 +552,12 @@ export async function POST(
       ])
     );
 
-    const sections = reconciliationResult.sections;
-    if (Array.isArray(sections)) {
-      for (const section of sections) {
+    const persistSections = strictPBMode
+      ? (reconciliationResult.rawSections ?? reconciliationResult.sections)
+      : reconciliationResult.sections;
+
+    if (Array.isArray(persistSections)) {
+      for (const section of persistSections) {
         const sectionId = (section as Record<string, unknown>).id ?? "";
         const rows = (section as Record<string, unknown>).rows;
         if (!Array.isArray(rows)) continue;
@@ -583,6 +587,22 @@ export async function POST(
       }
     }
 
+    // Query back the persisted line items to return in response for immediate table display
+    const lineItemResults = await db
+      .select({
+        id: aiAnalysisResultLineItems.id,
+        contractItemId: aiAnalysisResultLineItems.contractItemId,
+        lineItem: aiAnalysisResultLineItems.lineItem,
+        suggestedPercent: aiAnalysisResultLineItems.suggestedPercent,
+        status: aiAnalysisResultLineItems.status,
+        notes: aiAnalysisResultLineItems.notes,
+        progressBefore: aiAnalysisResultLineItems.progressBefore,
+        appliedAt: aiAnalysisResultLineItems.appliedAt,
+        appliedProgressPct: aiAnalysisResultLineItems.appliedProgressPct,
+      })
+      .from(aiAnalysisResultLineItems)
+      .where(eq(aiAnalysisResultLineItems.analysisResultId, result.id));
+
     return NextResponse.json({
       entryId: entry.id,
       projectId,
@@ -591,6 +611,7 @@ export async function POST(
       imageSource: "trello",
       trelloListId,
       analysisResult: reconciliationResult,
+      lineItemResults,
     });
   } catch (err) {
     console.error("[POST /api/projects/[id]/trello-analysis]", err);
