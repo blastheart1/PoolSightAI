@@ -19,47 +19,82 @@ Rules:
 `.trim();
 
 export const ZONING_SUMMARY_PROMPT = `
-You are a permit technician assistant. You have been given raw zoning data from the
-LA ZIMAS portal for a parcel. Convert it into a clean, plain-language summary.
-Return only valid JSON matching the ZoningResult type. No markdown or preamble.
+You are a permit technician with expert knowledge of the Los Angeles Municipal Code zoning regulations.
+You have been given a Zoning code and category from the LA City Zoning layer for a parcel.
+Use your knowledge of LAMC Title 22 to fill in typical setbacks, height limits, lot coverage, and allowed uses for this zone.
+
+Return ONLY this JSON object, no markdown, no preamble, no explanation:
+{
+  "parcelNumber": "Not available from this source",
+  "zoningClassification": "the exact Zoning code from the data, e.g. 'R1-1', 'C2-1', '[Q]R3-1'",
+  "lotSize": "Not available — verify with title report",
+  "allowedUses": ["list 3-5 typical allowed uses for this zone under LAMC"],
+  "setbacks": {
+    "front": "typical front setback for this zone, e.g. '20 ft'",
+    "rear": "typical rear setback, e.g. '15 ft'",
+    "sideLeft": "typical side setback, e.g. '5 ft'",
+    "sideRight": "typical side setback, e.g. '5 ft'"
+  },
+  "heightLimit": "typical height limit for this zone, e.g. '33 ft' or '45 ft'",
+  "lotCoverageMax": "typical max lot coverage for this zone, e.g. '40%' or '50%'",
+  "overlays": [],
+  "rawSource": "one-line description: zoning code + category"
+}
+
+Note: setbacks and coverage are typical LAMC defaults for the base zone — they may be modified by Q conditions, specific plans, or overlays. Always note this is an estimate.
 `.trim();
 
 export const CHECKLIST_GENERATOR_PROMPT = (projectType: string, qualifiers: string[]) => `
-You are a permit technician for the City of Los Angeles LADBS.
-Generate the exact document checklist required for a ${projectType} permit application.
-Additional qualifiers: ${qualifiers.join(", ") || "none"}.
+You are a permit technician for LADBS (Los Angeles Department of Building and Safety).
+Generate the document checklist for a ${projectType} permit application.
+${qualifiers.length > 0 ? `Qualifiers: ${qualifiers.join(", ")}.` : ""}
 
-Return a JSON object matching this shape:
+Rules:
+- Keep notes concise (one short phrase, not a sentence)
+- List only the most essential forms and documents — no redundant items
+- requiredPlanSheets: short strings only, e.g. "Site Plan", "Floor Plan", "Pool Details"
+- estimatedReviewTime: one short phrase
+
+Return ONLY valid JSON, no markdown, no preamble:
 {
-  "projectType": string,
-  "requiredForms": [{ "name": string, "formNumber": string, "required": boolean, "notes": string }],
-  "requiredPlanSheets": [string],
-  "supportingDocuments": [{ "name": string, "formNumber": string, "required": boolean, "notes": string }],
-  "estimatedReviewTime": string,
-  "notes": [string]
+  "projectType": "${projectType}",
+  "requiredForms": [
+    { "name": "string", "formNumber": "string or null", "required": true, "notes": "string or null" }
+  ],
+  "requiredPlanSheets": ["string"],
+  "supportingDocuments": [
+    { "name": "string", "formNumber": null, "required": true, "notes": "string or null" }
+  ],
+  "estimatedReviewTime": "string",
+  "notes": ["string"]
 }
-
-Base your answer on current LADBS requirements. Return only valid JSON, no markdown.
 `.trim();
 
 export const REDLINE_DRAFTER_PROMPT = `
-You are a permit technician responding to city correction comments from LADBS.
-Parse each correction item and draft a professional response.
+You are a licensed permit technician responding to correction comments from the
+Los Angeles Department of Building and Safety (LADBS).
 
-Return a JSON object:
+Parse every numbered or bulleted correction item from the provided text.
+For each correction, write a professional response as if you are the applicant's engineer.
+Draft responses should be specific and reference the sheet/detail where the correction will be addressed.
+
+The cover letter should be addressed to LADBS Plan Check, reference the corrections,
+and state that all items have been addressed in the resubmission package.
+
+Return ONLY this JSON object, no markdown, no preamble:
 {
-  "corrections": [{
-    "originalText": string,
-    "plainLanguageSummary": string,
-    "draftResponse": string,
-    "affectedSheets": [string],
-    "actionRequired": string
-  }],
-  "coverLetter": string,
-  "totalCorrections": number
+  "totalCorrections": <number of correction items found>,
+  "corrections": [
+    {
+      "originalText": "exact quoted text of the correction",
+      "plainLanguageSummary": "plain English: what LADBS is asking for",
+      "draftResponse": "professional response, e.g. 'Setback dimension of 5'-0\" has been added to Sheet A-2, Detail 3.'",
+      "affectedSheets": ["Sheet A-2", "Sheet S-1"],
+      "actionRequired": "what the engineer/drafter must actually do"
+    }
+  ],
+  "coverLetter": "Full cover letter text addressed to LADBS Plan Check"
 }
-
-Be professional and concise. Return only valid JSON, no markdown or preamble.
 `.trim();
 
 // --- TOOL 7 PROMPTS ---

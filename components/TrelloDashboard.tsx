@@ -336,29 +336,29 @@ export default function TrelloDashboard() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-slate-50">
-      <header className="bg-slate-950 px-6 py-6 text-white sm:px-10">
+      <header className="border-b border-slate-200 bg-white px-6 py-5 sm:px-10">
         <div className="mx-auto flex max-w-4xl items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-4">
               <Link
                 href="/"
-                className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-400 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-blue-600 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 <ArrowLeftIcon className="h-3.5 w-3.5" aria-hidden />
                 Back to PoolSightAI
               </Link>
               <Link
                 href="/projects"
-                className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400 hover:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 Projects
               </Link>
             </div>
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">Trello</p>
-            <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-              Trello – <span className="text-sky-400">Current Project</span>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">Trello</p>
+            <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-slate-900">
+              Trello – <span className="text-blue-600">Current Project</span>
             </h1>
-            <p className="mt-2 max-w-xl text-sm text-slate-300">
+            <p className="mt-2 max-w-xl text-sm text-slate-500">
               View cards and image attachments from your Current Project board; run a daily report with AI analysis on images uploaded that day.
             </p>
           </div>

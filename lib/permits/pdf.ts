@@ -2,11 +2,11 @@ import { PDFDocument } from "pdf-lib";
 
 /**
  * Merge multiple PDFs (base64-encoded) into a single PDF.
- * Returns the merged PDF as a base64 string.
+ * Returns the merged PDF as a base64 string and the total page count.
  */
 export async function mergePdfs(
   pdfBuffers: { pdfBase64: string; documentType: string }[]
-): Promise<string> {
+): Promise<{ pdfBase64: string; pageCount: number }> {
   const merged = await PDFDocument.create();
 
   for (const { pdfBase64 } of pdfBuffers) {
@@ -19,5 +19,8 @@ export async function mergePdfs(
   }
 
   const mergedBytes = await merged.save();
-  return Buffer.from(mergedBytes).toString("base64");
+  return {
+    pdfBase64: Buffer.from(mergedBytes).toString("base64"),
+    pageCount: merged.getPageCount(),
+  };
 }

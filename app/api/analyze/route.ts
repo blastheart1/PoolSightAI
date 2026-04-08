@@ -483,7 +483,7 @@ function extractToolInput(
   return null;
 }
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-4-6";
 const RETRY_PROMPT_SUFFIX_TOOL_MISSING =
   "\n\nIMPORTANT: You must respond by calling the reconcile_billing tool with your analysis. Do not respond with plain text or JSON in the message body.";
 const RETRY_PROMPT_SUFFIX_INCOMPLETE =

@@ -907,21 +907,21 @@ export default function ProjectDetailPage({
         .map((s) => (s.startsWith("http://") || s.startsWith("https://") ? s : `https://${s}`))
     : [];
   const pageHeader = (
-    <header className="bg-slate-950 px-6 py-6 text-white sm:px-10">
+    <header className="border-b border-slate-200 bg-white px-6 py-5 sm:px-10">
       <div className="mx-auto max-w-5xl flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <Link
             href="/projects"
-            className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-400 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-blue-600 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
             <ArrowLeftIcon className="h-3.5 w-3.5" aria-hidden />
             Projects
           </Link>
-          <h1 className="mt-3 text-3xl font-extrabold tracking-tight">
+          <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900">
             {projectName}
           </h1>
           {project?.orderNo != null || project?.streetAddress != null || project?.city != null ? (
-            <p className="mt-2 text-sm text-slate-300">
+            <p className="mt-2 text-sm text-slate-500">
               {project?.orderNo != null ? `Order ${project.orderNo}` : ""}
               {project?.streetAddress != null ? ` · ${project.streetAddress}` : ""}
               {project?.city != null ? `, ${project.city}` : ""}
@@ -933,7 +933,7 @@ export default function ProjectDetailPage({
               {trelloLinkedLists.map((link) => (
                 <span
                   key={link.id}
-                  className="inline-flex items-center rounded-full border border-sky-700/50 bg-sky-900/40 px-2.5 py-0.5 text-xs font-medium text-sky-300"
+                  className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700"
                 >
                   {link.listName ?? link.listId}
                   {link.boardName ? ` · ${link.boardName}` : ""}
@@ -946,7 +946,7 @@ export default function ProjectDetailPage({
               <button
                 type="button"
                 onClick={startEditingDetails}
-                className="inline-flex items-center gap-1.5 rounded-full border border-sky-700/40 bg-sky-900/30 px-3 py-1 text-xs font-medium text-sky-400 hover:bg-sky-900/50 hover:text-sky-300 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5" aria-hidden="true">
                   <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
@@ -964,7 +964,7 @@ export default function ProjectDetailPage({
                   href={href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sky-400 underline hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  className="text-blue-600 underline hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                 >
                   {trelloUrls.length > 1 ? `Board ${i + 1}` : "Open board"}
                 </a>
@@ -976,7 +976,7 @@ export default function ProjectDetailPage({
           <button
             type="button"
             onClick={startEditingDetails}
-            className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
             aria-label="Edit project details"
           >
             <PencilSquareIcon className="h-5 w-5" aria-hidden />
@@ -1222,7 +1222,7 @@ export default function ProjectDetailPage({
                   type="button"
                   onClick={runAnalysis}
                   disabled={analysisLoading || files.length === 0}
-                  className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+                  className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                 >
                   {analysisLoading ? "Analyzing…" : "Analyze"}
                 </button>

@@ -556,16 +556,16 @@ function WelcomeTab() {
       aria-label="Welcome"
     >
       {/* Hero */}
-      <section className="relative flex min-h-full snap-start flex-col items-center justify-center bg-slate-950 px-8 py-12 text-center text-white">
+      <section className="relative flex min-h-full snap-start flex-col items-center justify-center bg-gradient-to-br from-blue-600 to-blue-800 px-8 py-12 text-center text-white">
         <img
           src="/Calimingo.png"
           alt="Calimingo"
           className="mb-4 h-20 w-20 object-contain"
         />
         <h1 className="mb-2 text-5xl font-extrabold tracking-tight sm:text-6xl md:text-7xl">
-          Pool<span className="text-sky-400">Sight</span>AI
+          Pool<span className="text-blue-200">Sight</span>AI
         </h1>
-        <p className="max-w-xl text-lg text-slate-300">
+        <p className="max-w-xl text-lg text-blue-100">
           Construction progress intelligence & billing reconciliation
         </p>
 
@@ -574,22 +574,22 @@ function WelcomeTab() {
           className="pointer-events-none absolute bottom-8 left-1/2 -translate-x-1/2"
           aria-hidden="true"
         >
-          <span className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/40 px-3 py-1 text-xs text-slate-200">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3 py-1 text-xs text-white">
             Scroll down <span>↓</span>
           </span>
         </div>
       </section>
 
       {/* How to use */}
-      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-900 px-8 py-8 text-white">
-        <h2 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">
+      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-white px-8 py-8 text-slate-900">
+        <h2 className="mb-6 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
           How to use
         </h2>
-        <div className="max-w-2xl text-left text-slate-200">
+        <div className="max-w-2xl text-left text-slate-700">
           <ol className="ml-4 list-decimal space-y-3 text-sm leading-snug">
             <li>
-              <strong className="text-white">Using Trello</strong>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-200">
+              <strong className="text-slate-900">Using Trello</strong>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600">
                 <li>Open Trello from the sidebar and select your board.</li>
                 <li>Open a list (e.g. a list that holds your weekly or daily photos).</li>
                 <li>
@@ -597,7 +597,7 @@ function WelcomeTab() {
                   or use the upload option to add photos from your computer. Both can be analyzed.
                 </li>
                 <li>
-                  Add a PM update (optional) — notes like “tile ready for pickup” or “rough-in complete”.
+                  Add a PM update (optional) — notes like "tile ready for pickup" or "rough-in complete".
                 </li>
                 <li>
                   Run AI analysis — results show line-item progress, status badges (Advance/Hold/Verify/OK),
@@ -606,11 +606,11 @@ function WelcomeTab() {
               </ul>
             </li>
             <li>
-              <strong className="text-white">Saving analysis to a project</strong>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-200">
-                <li>After the AI finishes, use “Save as report entry”.</li>
+              <strong className="text-slate-900">Saving analysis to a project</strong>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600">
+                <li>After the AI finishes, use "Save as report entry".</li>
                 <li>
-                  Choose an existing project (to add a new entry) or “Create New Project”.
+                  Choose an existing project (to add a new entry) or "Create New Project".
                 </li>
                 <li>
                   You can save to a project that already has report entries — each save adds another entry.
@@ -619,8 +619,8 @@ function WelcomeTab() {
               </ul>
             </li>
             <li>
-              <strong className="text-white">Projects & line items</strong>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-200">
+              <strong className="text-slate-900">Projects & line items</strong>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-600">
                 <li>Create a project — go to Projects and add a new project.</li>
                 <li>
                   Import line items — upload a contract file (EML) to parse and import your billing items.
@@ -636,23 +636,23 @@ function WelcomeTab() {
       </section>
 
       {/* Guides, tips & known issues */}
-      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-950 px-8 py-12 text-white">
-        <h2 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">
+      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-50 px-8 py-12 text-slate-900">
+        <h2 className="mb-6 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
           Guides, tips & known issues
         </h2>
         <div className="max-w-2xl">
-          <ul className="space-y-3 text-left text-sm text-slate-200" role="list">
+          <ul className="space-y-3 text-left text-sm text-slate-700" role="list">
             <li className="flex gap-2">
               <span className="font-bold text-sky-400">•</span>
               <span>
                 Use <strong>clear, well-lit photos</strong>. If you have renderings/drawings, include them in the
-                Documents cards so the AI can match what “done” should look like.
+                Documents cards so the AI can match what "done" should look like.
               </span>
             </li>
             <li className="flex gap-2">
               <span className="font-bold text-sky-400">•</span>
               <span>
-                Add a <strong>PM update</strong> (optional) for context, like “tile ready for pickup” or “rough-in complete”.
+                Add a <strong>PM update</strong> (optional) for context, like "tile ready for pickup" or "rough-in complete".
               </span>
             </li>
             <li className="flex gap-2">
@@ -684,11 +684,11 @@ function WelcomeTab() {
       </section>
 
       {/* About the project */}
-      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-950 px-8 py-12 text-white">
-        <h2 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">
+      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-white px-8 py-12 text-slate-900">
+        <h2 className="mb-6 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
           About the project
         </h2>
-        <div className="max-w-2xl space-y-4 text-center text-slate-200">
+        <div className="max-w-2xl space-y-4 text-center text-slate-600">
           <p>
             PoolSightAI turns construction site photos into billing-ready reconciliation reports. The AI analyzes images, extracts progress by line item, and produces standardized tables with <strong>status badges</strong> (Advance, Hold, Verify, OK) and <strong>key actions</strong>.
           </p>
@@ -696,11 +696,11 @@ function WelcomeTab() {
       </section>
 
       {/* Key features */}
-      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-900 px-8 py-12 text-white">
-        <h2 className="mb-6 text-2xl font-bold tracking-tight sm:text-3xl">
+      <section className="flex min-h-full snap-start flex-col items-center justify-center bg-slate-50 px-8 py-12 text-slate-900">
+        <h2 className="mb-6 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
           Key features
         </h2>
-        <ul className="max-w-2xl space-y-4 text-left text-slate-200" role="list">
+        <ul className="max-w-2xl space-y-4 text-left text-slate-700" role="list">
           <li className="flex gap-3">
             <span className="font-bold text-sky-400">•</span>
             <span><strong>Trello</strong> — Connect boards, analyze list photos, save to projects.</span>
@@ -1119,16 +1119,15 @@ function PlanTab() {
 
   return (
     <section className="flex h-full flex-col">
-      <header className="bg-slate-950 px-10 py-8 text-white">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">
+      <header className="border-b border-slate-200 bg-white px-10 py-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">
           Project Plan Tracker
         </p>
-        <h2 className="mt-2 text-3xl font-extrabold tracking-tight">
-          PoolSight <span className="text-sky-400">AI</span>
+        <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-slate-900">
+          PoolSight <span className="text-blue-600">AI</span>
         </h2>
-        <p className="mt-2 max-w-xl text-sm text-slate-300">
-          Track phase completion across the full implementation
-          roadmap.
+        <p className="mt-2 max-w-xl text-sm text-slate-500">
+          Track phase completion across the full implementation roadmap.
         </p>
         <dl className="mt-6 grid max-w-xl grid-cols-2 gap-4 text-sm sm:grid-cols-4">
           {[
@@ -1139,12 +1138,12 @@ function PlanTab() {
           ].map(([label, value]) => (
             <div
               key={label}
-              className="rounded-lg border border-slate-800 bg-slate-900/70 p-3"
+              className="rounded-lg border border-slate-200 bg-slate-50 p-3"
             >
               <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                 {label}
               </dt>
-              <dd className="mt-1 text-lg font-semibold text-white">
+              <dd className="mt-1 text-lg font-semibold text-slate-900">
                 {value}
               </dd>
             </div>
@@ -2275,17 +2274,17 @@ export default function PoolsightApp({ initialTab } = {}) {
 
   return (
     <div className="flex h-screen bg-slate-100 text-slate-900">
-      <aside className="flex w-56 flex-col bg-slate-950 text-slate-100">
-        <div className="border-b border-slate-800 px-5 py-4">
+      <aside className="flex w-56 flex-col border-r border-slate-200 bg-white text-slate-900">
+        <div className="border-b border-slate-200 px-5 py-4">
           <img
             src="/Calimingo.png"
             alt="Calimingo"
             className="h-8 w-8 rounded-lg object-contain"
           />
-          <h1 className="mt-2 text-sm font-extrabold tracking-tight">
-            Pool<span className="text-sky-400">Sight</span>AI
+          <h1 className="mt-2 text-sm font-extrabold tracking-tight text-slate-900">
+            Pool<span className="text-blue-600">Sight</span>AI
           </h1>
-          <p className="mt-0.5 text-[11px] text-slate-400">
+          <p className="mt-0.5 text-[11px] text-slate-500">
             Construction progress intelligence
           </p>
         </div>
@@ -2299,7 +2298,7 @@ export default function PoolsightApp({ initialTab } = {}) {
                 <a
                   key={item.id}
                   href={item.href}
-                  className="flex w-full items-center gap-2 rounded-md px-4 py-2 text-left text-[13px] font-medium text-slate-300 transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                  className="flex w-full items-center gap-2 rounded-md px-4 py-2 text-left text-[13px] font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
                   <span aria-hidden="true">{item.icon}</span>
                   <span>{item.label}</span>
@@ -2312,10 +2311,10 @@ export default function PoolsightApp({ initialTab } = {}) {
                 key={item.id}
                 type="button"
                 onClick={() => setTab(item.id)}
-                className={`flex w-full items-center gap-2 rounded-md px-4 py-2 text-left text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${
+                className={`flex w-full items-center gap-2 rounded-md px-4 py-2 text-left text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                   active
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-300 hover:bg-slate-900"
+                    ? "bg-blue-50 text-blue-700"
+                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                 }`}
                 aria-current={active ? "page" : undefined}
               >
@@ -2325,7 +2324,7 @@ export default function PoolsightApp({ initialTab } = {}) {
             );
           })}
         </nav>
-        <footer className="border-t border-slate-800 px-5 py-3 text-[11px] text-slate-500">
+        <footer className="border-t border-slate-200 px-5 py-3 text-[11px] text-slate-400">
           March 2026 · Confidential
         </footer>
       </aside>

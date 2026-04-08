@@ -1,10 +1,19 @@
 import type { ComplianceStatus as ComplianceStatusType } from "@/types/permits";
 import clsx from "clsx";
 
-const CONFIG: Record<ComplianceStatusType, { label: string; color: string; icon: string }> = {
-  pass: { label: "Pass", color: "bg-emerald-900/50 text-emerald-400 border-emerald-800", icon: "✓" },
-  fail: { label: "Fail", color: "bg-red-900/50 text-red-400 border-red-800", icon: "✗" },
-  warning: { label: "Warning", color: "bg-amber-900/50 text-amber-400 border-amber-800", icon: "!" },
+const CONFIG: Record<ComplianceStatusType, { label: string; className: string }> = {
+  pass: {
+    label: "Pass",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  fail: {
+    label: "Fail",
+    className: "border-red-200 bg-red-50 text-red-700",
+  },
+  warning: {
+    label: "Warning",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+  },
 };
 
 interface ComplianceStatusProps {
@@ -12,20 +21,16 @@ interface ComplianceStatusProps {
   className?: string;
 }
 
-export default function ComplianceStatus({
-  status,
-  className,
-}: ComplianceStatusProps) {
+export default function ComplianceStatus({ status, className }: ComplianceStatusProps) {
   const cfg = CONFIG[status];
   return (
     <span
       className={clsx(
-        "inline-flex min-w-[76px] items-center justify-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide",
-        cfg.color,
+        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
+        cfg.className,
         className
       )}
     >
-      <span aria-hidden="true">{cfg.icon}</span>
       {cfg.label}
     </span>
   );

@@ -45,14 +45,22 @@ export async function POST(req: Request) {
     }
 
     const lotArea = input.lotWidth * input.lotDepth;
-    const lotCoveragePercent =
-      lotArea > 0 ? (input.structureFootprint / lotArea) * 100 : 0;
+
+    if (lotArea <= 0) {
+      return NextResponse.json(
+        { success: false, error: "Lot dimensions must be greater than zero" },
+        { status: 400 }
+      );
+    }
+
+    const lotCoveragePercent = (input.structureFootprint / lotArea) * 100;
     const lotCoverageStatus = checkCompliance(
       lotCoveragePercent,
       input.zoningRules.maxLotCoverage
     );
 
-    const farCalculated = input.proposedFAR;
+    // FAR = total floor area / lot area. User provides total floor area; we calculate FAR.
+    const farCalculated = Math.round((input.proposedFAR / lotArea) * 100) / 100;
     const farStatus = checkCompliance(farCalculated, input.zoningRules.maxFAR);
 
     const setbackResults = [
@@ -68,10 +76,10 @@ export async function POST(req: Request) {
       {
         side: "Rear",
         proposed: input.setbacks.rear,
-        required: input.zoningRules.minSetbacks.front,
+        required: input.zoningRules.minSetbacks.rear,
         status: checkSetback(
           input.setbacks.rear,
-          input.zoningRules.minSetbacks.front
+          input.zoningRules.minSetbacks.rear
         ),
       },
       {
@@ -97,7 +105,7 @@ export async function POST(req: Request) {
     const failures = setbackResults.filter((s) => s.status === "fail");
     const warnings = setbackResults.filter((s) => s.status === "warning");
 
-    let summary = `Lot area: ${lotArea.toLocaleString()} sq ft. Coverage: ${lotCoveragePercent.toFixed(1)}% (max ${input.zoningRules.maxLotCoverage}%). FAR: ${farCalculated} (max ${input.zoningRules.maxFAR}).`;
+    let summary = `Lot area: ${lotArea.toLocaleString()} sq ft. Coverage: ${lotCoveragePercent.toFixed(1)}% (max ${input.zoningRules.maxLotCoverage}%). FAR: ${farCalculated} (${input.proposedFAR.toLocaleString()} sq ft total floor area ÷ ${lotArea.toLocaleString()} sq ft lot, max allowed ${input.zoningRules.maxFAR}).`;
 
     if (failures.length > 0) {
       summary += ` ${failures.length} setback violation(s) found.`;

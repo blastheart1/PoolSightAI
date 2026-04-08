@@ -5,7 +5,7 @@ import type { RedlineResult } from "@/types/permits";
 
 export const runtime = "nodejs";
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-4-6";
 
 export async function POST(req: Request) {
   try {
@@ -14,6 +14,13 @@ export async function POST(req: Request) {
     if (!corrections?.trim()) {
       return NextResponse.json(
         { success: false, error: "corrections text is required" },
+        { status: 400 }
+      );
+    }
+
+    if (corrections.length > 20000) {
+      return NextResponse.json(
+        { success: false, error: "Corrections text is too long (max 20,000 characters). Split into smaller batches." },
         { status: 400 }
       );
     }
@@ -35,8 +42,9 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 2000,
+        max_tokens: 4000,
         temperature: 0,
+        system: "You are a licensed permit technician at Calimingo Pools in Los Angeles, responding to LADBS correction comments. You always return valid JSON only — no markdown, no explanation, no preamble.",
         messages: [
           {
             role: "user",

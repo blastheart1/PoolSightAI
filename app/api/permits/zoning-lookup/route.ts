@@ -6,7 +6,7 @@ import type { ZoningResult } from "@/types/permits";
 
 export const runtime = "nodejs";
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-4-6";
 
 export async function POST(req: Request) {
   try {
@@ -38,12 +38,20 @@ export async function POST(req: Request) {
     const parcel = await fetchZimasParcel(geo.lat, geo.lon);
     if (!parcel) {
       return NextResponse.json(
-        { success: false, error: "No ZIMAS parcel found at this location." },
+        {
+          success: false,
+          error:
+            "No zoning data found for this address. This tool covers City of Los Angeles parcels only. Addresses in unincorporated LA County (e.g. View Park, Ladera Heights, East LA) or other cities (Culver City, Beverly Hills, etc.) are not supported.",
+        },
         { status: 404 }
       );
     }
 
-    const rawJson = JSON.stringify(parcel, null, 2);
+    const rawJson = JSON.stringify(
+      { matchedAddress: geo.matchedAddress, ...parcel },
+      null,
+      2
+    );
 
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -56,6 +64,7 @@ export async function POST(req: Request) {
         model: MODEL,
         max_tokens: 1000,
         temperature: 0,
+        system: "You are a permit technician assistant for a pool construction company in Los Angeles. You always return valid JSON only — no markdown, no explanation, no preamble.",
         messages: [
           {
             role: "user",

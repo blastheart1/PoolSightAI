@@ -5,7 +5,7 @@ import type { ChecklistResult, ProjectType } from "@/types/permits";
 
 export const runtime = "nodejs";
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-4-6";
 
 const VALID_TYPES: ProjectType[] = [
   "pool",
@@ -54,8 +54,9 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1000,
+        max_tokens: 4000,
         temperature: 0,
+        system: "You are a permit technician for the City of Los Angeles LADBS. You always return valid JSON only — no markdown, no explanation, no preamble.",
         messages: [{ role: "user", content: prompt }],
       }),
     });

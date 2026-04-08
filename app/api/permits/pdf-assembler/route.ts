@@ -28,11 +28,11 @@ export async function POST(req: Request) {
       }
     }
 
-    const mergedBase64 = await mergePdfs(documents);
+    const { pdfBase64: mergedBase64, pageCount } = await mergePdfs(documents);
 
     return NextResponse.json({
       success: true,
-      data: { pdfBase64: mergedBase64, pageCount: documents.length },
+      data: { pdfBase64: mergedBase64, pageCount },
     });
   } catch (err) {
     console.error("pdf-assembler error:", err);

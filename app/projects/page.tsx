@@ -167,31 +167,31 @@ export default function ProjectsPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-100 text-slate-900">
-      <header className="bg-slate-950 px-6 py-6 text-white sm:px-10">
+      <header className="border-b border-slate-200 bg-white px-6 py-5 sm:px-10">
         <div className="mx-auto flex max-w-4xl items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-4">
               <Link
                 href="/"
-                className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-sky-400 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-blue-600 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 <ArrowLeftIcon className="h-3.5 w-3.5" aria-hidden />
                 Back to PoolSightAI
               </Link>
               <Link
                 href="/trello"
-                className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400 hover:text-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 Trello
               </Link>
             </div>
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">
               Projects
             </p>
-            <h1 className="mt-2 text-3xl font-extrabold tracking-tight">
-              Calimingo <span className="text-sky-400">Projects</span>
+            <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-slate-900">
+              Calimingo <span className="text-blue-600">Projects</span>
             </h1>
-            <p className="mt-2 max-w-xl text-sm text-slate-300">
+            <p className="mt-2 max-w-xl text-sm text-slate-500">
               Create projects, parse contract EML files, and run AI progress billing analysis.
             </p>
           </div>
@@ -218,7 +218,7 @@ export default function ProjectsPage() {
                 setParseResult(null);
                 setParseError("");
               }}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
             >
               <PlusIcon className="h-4 w-4" aria-hidden />
               Add Project
@@ -302,7 +302,7 @@ export default function ProjectsPage() {
                   <button
                     type="button"
                     onClick={() => setAddStep("parse")}
-                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   >
                     Next: Parse contract
                   </button>
@@ -388,7 +388,7 @@ export default function ProjectsPage() {
                   <button
                     type="button"
                     onClick={createProject}
-                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   >
                     Create project
                   </button>
