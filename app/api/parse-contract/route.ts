@@ -15,6 +15,7 @@ import {
   fetchExistingProjectData,
   runLinksFlow,
 } from "../../../lib/contractParseFlow";
+import { getCleanText } from "../../../lib/preParseEml";
 
 export const runtime = "nodejs";
 
@@ -207,7 +208,7 @@ export async function POST(request: NextRequest) {
     if (hasOriginal || hasAddendums) {
       const originalContractUrl = extractedLinks.originalContractUrl ?? "";
       const addendumLinks = extractedLinks.addendumUrls ?? [];
-      const locationFromEml = extractLocation(parsed.text);
+      const locationFromEml = extractLocation(getCleanText(parsed));
       const { location, items, mergeInfo } = await runLinksFlow({
         originalContractUrl,
         addendumLinks,
@@ -246,7 +247,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const location = extractLocation(parsed.text);
+    const location = extractLocation(getCleanText(parsed));
     // Zapier-constructed EMLs may lack MIME headers, putting HTML into .text
     let htmlForItems = parsed.html;
     if (!htmlForItems && parsed.text && /<table[\s>]/i.test(parsed.text)) {

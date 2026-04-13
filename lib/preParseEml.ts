@@ -2,6 +2,40 @@ import { parseEML } from "./emlParser";
 import { extractLocation } from "./tableExtractor";
 import { extractContractLinks } from "./contractLinkExtractor";
 
+/**
+ * Strip HTML tags and decode common entities to produce clean plain text.
+ * Used when mailparser returns HTML in .text due to missing MIME headers
+ * (common with Zapier-constructed EMLs).
+ */
+export function stripHtmlToText(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:div|p|tr|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * Get clean plain text from a parsed EML, handling Zapier EMLs
+ * that put HTML content into .text due to missing MIME headers.
+ */
+export function getCleanText(parsed: { text: string; html: string }): string {
+  // If .text contains HTML tags, strip them
+  if (parsed.text && /<[a-z][\s\S]*>/i.test(parsed.text)) {
+    return stripHtmlToText(parsed.text);
+  }
+  return parsed.text ?? "";
+}
+
 export interface PreParseResult {
   orderNo: string;
   clientName: string;
@@ -26,7 +60,8 @@ export interface PreParseResult {
 export async function preParseEml(emlBase64: string): Promise<PreParseResult> {
   const buffer = Buffer.from(emlBase64, "base64");
   const parsed = await parseEML(buffer);
-  const location = extractLocation(parsed.text);
+  const cleanText = getCleanText(parsed);
+  const location = extractLocation(cleanText);
   const links = extractContractLinks(parsed);
 
   return {

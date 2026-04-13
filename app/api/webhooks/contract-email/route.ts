@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
-import { preParseEml } from "../../../../lib/preParseEml";
+import { preParseEml, getCleanText } from "../../../../lib/preParseEml";
 import { db } from "../../../../lib/db";
 import { projects, projectContractItems, projectSelectedItems } from "../../../../lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -171,7 +171,8 @@ export async function POST(request: NextRequest) {
       // Inline table mode: parse from EML HTML
       const buffer = Buffer.from(eml, "base64");
       const parsed = await parseEML(buffer);
-      const location = extractLocation(parsed.text);
+      const cleanText = getCleanText(parsed);
+      const location = extractLocation(cleanText);
       // Zapier-constructed EMLs may lack MIME Content-Type headers,
       // so mailparser puts HTML content into .text instead of .html.
       // Fall back to .text if .html is empty but .text contains HTML tags.
