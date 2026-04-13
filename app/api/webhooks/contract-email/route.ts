@@ -172,7 +172,20 @@ export async function POST(request: NextRequest) {
       const buffer = Buffer.from(eml, "base64");
       const parsed = await parseEML(buffer);
       const location = extractLocation(parsed.text);
-      const items = extractOrderItems(parsed.html);
+      // Zapier-constructed EMLs may lack MIME Content-Type headers,
+      // so mailparser puts HTML content into .text instead of .html.
+      // Fall back to .text if .html is empty but .text contains HTML tags.
+      let htmlContent = parsed.html;
+      if (!htmlContent && parsed.text && /<table[\s>]/i.test(parsed.text)) {
+        htmlContent = parsed.text;
+      }
+      if (!htmlContent) {
+        return NextResponse.json(
+          { error: "No HTML content found in email. Cannot extract order items table." },
+          { status: 400 }
+        );
+      }
+      const items = extractOrderItems(htmlContent);
       parsedItems = { location: location as unknown as Record<string, unknown>, items };
     }
 

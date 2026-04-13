@@ -247,7 +247,12 @@ export async function POST(request: NextRequest) {
     }
 
     const location = extractLocation(parsed.text);
-    let items = extractOrderItems(parsed.html);
+    // Zapier-constructed EMLs may lack MIME headers, putting HTML into .text
+    let htmlForItems = parsed.html;
+    if (!htmlForItems && parsed.text && /<table[\s>]/i.test(parsed.text)) {
+      htmlForItems = parsed.text;
+    }
+    let items = extractOrderItems(htmlForItems);
     items = filterItems(items, true, true);
     const isLocationParsed = isLocationValid(location);
     const orderItemsValidation = validateOrderItemsTotal(
