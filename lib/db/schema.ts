@@ -40,6 +40,7 @@ export const projects = pgTable(
   },
   (table) => ({
     createdAtIdx: index("projects_created_at_idx").on(table.createdAt),
+    orderNoIdx: index("projects_order_no_idx").on(table.orderNo),
   })
 );
 

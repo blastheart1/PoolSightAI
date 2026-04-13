@@ -34,6 +34,16 @@ export default function ProjectsPage() {
     items: unknown[];
   } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [preParsing, setPreParsing] = useState(false);
+  const [preParseData, setPreParseData] = useState<{
+    orderNo: string;
+    clientName: string;
+    subject?: string;
+    hasOriginalContract: boolean;
+    addendumCount: number;
+  } | null>(null);
+  const [duplicateMatch, setDuplicateMatch] = useState<ProjectRow | null>(null);
+  const [existingProjectId, setExistingProjectId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,11 +67,55 @@ export default function ProjectsPage() {
     load();
   }, [load]);
 
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const fileToBase64 = async (file: File): Promise<string> => {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+
+  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     setParseFile(file ?? null);
     setParseError("");
     setParseResult(null);
+    setPreParseData(null);
+    setDuplicateMatch(null);
+    setExistingProjectId(null);
+
+    if (!file) return;
+
+    // Pre-parse to detect duplicates
+    setPreParsing(true);
+    try {
+      const b64 = await fileToBase64(file);
+      const res = await fetch("/api/pre-parse-eml", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: b64 }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.data) {
+        setPreParseData(data.data);
+        // Check for duplicate by orderNo
+        if (data.data.orderNo) {
+          const match = projects.find(
+            (p) =>
+              p.orderNo &&
+              p.orderNo.trim().toLowerCase() ===
+                data.data.orderNo.trim().toLowerCase()
+          );
+          if (match) setDuplicateMatch(match);
+        }
+      }
+    } catch {
+      // Pre-parse failure is non-blocking — user can still proceed
+    } finally {
+      setPreParsing(false);
+    }
   };
 
   const isProDbxUrl = (url: string) =>
@@ -76,15 +130,11 @@ export default function ProjectsPage() {
     setParseResult(null);
     try {
       const body: Record<string, unknown> = { returnData: true };
+      if (existingProjectId) {
+        body.existingProjectId = existingProjectId;
+      }
       if (parseFile) {
-        const buf = await parseFile.arrayBuffer();
-        const bytes = new Uint8Array(buf);
-        let binary = "";
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        const b64 = typeof btoa !== "undefined" ? btoa(binary) : "";
-        if (!b64) throw new Error("Base64 encoding not available");
+        const b64 = await fileToBase64(parseFile);
         body.file = b64;
       } else if (parseUrl.trim()) {
         if (isProDbxUrl(parseUrl)) {
@@ -139,25 +189,48 @@ export default function ProjectsPage() {
     setAddStep("saving");
     setParseError("");
     try {
-      const res = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          location: parseResult?.location ?? {},
-          items: parseResult?.items ?? [],
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to create project");
+      let targetId: string | undefined;
+
+      if (existingProjectId) {
+        // Append to existing project
+        const res = await fetch(`/api/projects/${existingProjectId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location: parseResult?.location ?? {},
+            items: parseResult?.items ?? [],
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to update project");
+        targetId = existingProjectId;
+      } else {
+        // Create new project
+        const res = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            location: parseResult?.location ?? {},
+            items: parseResult?.items ?? [],
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "Failed to create project");
+        targetId = data.id;
+      }
+
       setAddOpen(false);
       setAddName("");
       setParseFile(null);
       setParseResult(null);
+      setPreParseData(null);
+      setDuplicateMatch(null);
+      setExistingProjectId(null);
       setAddStep("name");
       await load();
-      if (data.id) {
-        window.location.href = `/projects/${data.id}`;
+      if (targetId) {
+        window.location.href = `/projects/${targetId}`;
       }
     } catch (e) {
       setParseError(e instanceof Error ? e.message : "Failed to create");
@@ -217,6 +290,9 @@ export default function ProjectsPage() {
                 setAddendumUrlsText("");
                 setParseResult(null);
                 setParseError("");
+                setPreParseData(null);
+                setDuplicateMatch(null);
+                setExistingProjectId(null);
               }}
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
             >
@@ -323,6 +399,56 @@ export default function ProjectsPage() {
                   onChange={onFileChange}
                   className="mt-2 block w-full text-sm text-slate-600 file:mr-4 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-slate-700 file:font-medium"
                 />
+                {preParsing && (
+                  <p className="mt-2 text-xs text-slate-500">Checking for duplicates...</p>
+                )}
+                {preParseData && !duplicateMatch && !preParsing && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Detected: Order {preParseData.orderNo || "N/A"}
+                    {preParseData.clientName ? ` · ${preParseData.clientName}` : ""}
+                    {preParseData.addendumCount > 0
+                      ? ` · ${preParseData.addendumCount} addendum${preParseData.addendumCount > 1 ? "s" : ""}`
+                      : ""}
+                  </p>
+                )}
+                {duplicateMatch && !preParsing && (
+                  <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+                    <p className="text-sm font-medium text-amber-900">
+                      This contract already exists as &ldquo;{duplicateMatch.name}&rdquo;
+                      {preParseData?.addendumCount
+                        ? ` (${preParseData.addendumCount} addendum${preParseData.addendumCount > 1 ? "s" : ""} detected)`
+                        : ""}
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExistingProjectId(duplicateMatch.id);
+                          setAddName(duplicateMatch.name);
+                          setDuplicateMatch(null);
+                        }}
+                        className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                      >
+                        Append to existing
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDuplicateMatch(null);
+                          setExistingProjectId(null);
+                        }}
+                        className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
+                      >
+                        Parse as new project
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {existingProjectId && !duplicateMatch && (
+                  <p className="mt-2 text-xs font-medium text-amber-700">
+                    Appending to existing project. New addendums only will be added.
+                  </p>
+                )}
                 <label htmlFor="contract-url" className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Or contract URL
                 </label>
@@ -390,7 +516,7 @@ export default function ProjectsPage() {
                     onClick={createProject}
                     className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   >
-                    Create project
+                    {existingProjectId ? "Update project" : "Create project"}
                   </button>
                 </div>
               </>
