@@ -9,6 +9,7 @@ import {
   serial,
   pgEnum,
   jsonb,
+  boolean,
   unique,
   index,
 } from "drizzle-orm/pg-core";
@@ -74,6 +75,12 @@ export const projectContractItems = pgTable(
     newProgressPct: decimal("new_progress_pct", { precision: 10, scale: 4 }),
     thisBill: decimal("this_bill", { precision: 15, scale: 2 }),
     optionalPackageNumber: integer("optional_package_number"),
+    // Addendum metadata
+    columnBLabel: varchar("column_b_label", { length: 50 }),
+    isAddendumHeader: boolean("is_addendum_header").default(false),
+    addendumNumber: varchar("addendum_number", { length: 50 }),
+    addendumUrlId: varchar("addendum_url_id", { length: 255 }),
+    isBlankRow: boolean("is_blank_row").default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

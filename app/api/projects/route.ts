@@ -90,6 +90,11 @@ export async function POST(request: NextRequest) {
         thisBill: it.thisBill != null ? toDec(it.thisBill) : null,
         optionalPackageNumber:
           typeof it.optionalPackageNumber === "number" ? it.optionalPackageNumber : null,
+        columnBLabel: it.columnBLabel ?? null,
+        isAddendumHeader: it.isAddendumHeader === true,
+        addendumNumber: it.addendumNumber ?? null,
+        addendumUrlId: it.addendumUrlId ?? null,
+        isBlankRow: it.isBlankRow === true,
       });
     }
 

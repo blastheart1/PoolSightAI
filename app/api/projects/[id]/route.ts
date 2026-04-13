@@ -103,6 +103,18 @@ export async function PATCH(
 
     const newItems = Array.isArray(body.items) ? body.items : null;
     if (newItems) {
+      if (newItems.length === 0) {
+        const existingCount = await db
+          .select({ id: projectContractItems.id })
+          .from(projectContractItems)
+          .where(eq(projectContractItems.projectId, id));
+        if (existingCount.length > 0) {
+          return NextResponse.json(
+            { error: "Refusing to overwrite existing contract items with empty array. Send items or omit the items field." },
+            { status: 400 }
+          );
+        }
+      }
       await db.delete(projectSelectedItems).where(eq(projectSelectedItems.projectId, id));
       await db.delete(projectContractItems).where(eq(projectContractItems.projectId, id));
       for (let i = 0; i < newItems.length; i++) {
@@ -125,6 +137,11 @@ export async function PATCH(
           thisBill: it.thisBill != null ? toDec(it.thisBill) : null,
           optionalPackageNumber:
             typeof it.optionalPackageNumber === "number" ? it.optionalPackageNumber : null,
+          columnBLabel: it.columnBLabel ?? null,
+          isAddendumHeader: it.isAddendumHeader === true,
+          addendumNumber: it.addendumNumber ?? null,
+          addendumUrlId: it.addendumUrlId ?? null,
+          isBlankRow: it.isBlankRow === true,
         });
       }
       (updates as { parsedAt?: Date }).parsedAt = new Date();

@@ -17,6 +17,16 @@ import {
   type AddendumData,
 } from "../../../lib/addendumParser";
 import { extractContractLinks } from "../../../lib/contractLinkExtractor";
+import { db } from "../../../lib/db";
+import { projects, projectContractItems } from "../../../lib/db/schema";
+import { eq } from "drizzle-orm";
+import {
+  deduplicateUrls,
+  getExistingAddendumIds,
+  filterNewAddendums,
+  mergeExistingWithNewAddendums,
+  validateMergeSafety,
+} from "../../../lib/contractMerger";
 
 export const runtime = "nodejs";
 
@@ -35,47 +45,86 @@ function filterItems(
   });
 }
 
-function mergeAddendumDataIntoItems(
-  mainItems: OrderItem[],
-  addendumData: AddendumData[]
-): OrderItem[] {
-  const merged: OrderItem[] = [...mainItems];
-  if (addendumData.length === 0) return merged;
-  merged.push({
-    type: "item",
-    productService: "",
-    qty: "",
-    rate: "",
-    amount: "",
-    isBlankRow: true,
-  });
-  for (const addendum of addendumData) {
-    const addendumNum = addendum.addendumNumber;
-    const urlId = addendum.urlId ?? addendum.addendumNumber;
-    merged.push({
-      type: "maincategory",
-      productService: `Addendum #${addendumNum} (${urlId})`,
-      qty: "",
-      rate: "",
-      amount: "",
-      isAddendumHeader: true,
-      addendumNumber: addendumNum,
-      addendumUrlId: urlId,
-    });
-    for (const item of addendum.items) {
-      merged.push({ ...item, columnBLabel: "Addendum" });
-    }
-  }
-  return merged;
+/**
+ * Fetch existing project + contract items from the database.
+ * Returns null if the project doesn't exist.
+ */
+async function fetchExistingProjectData(projectId: string): Promise<{
+  project: { orderNo: string | null; clientName: string | null };
+  items: OrderItem[];
+} | null> {
+  if (!db) return null;
+  const [project] = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, projectId));
+  if (!project) return null;
+
+  const rows = await db
+    .select()
+    .from(projectContractItems)
+    .where(eq(projectContractItems.projectId, projectId))
+    .orderBy(projectContractItems.rowIndex);
+
+  const items: OrderItem[] = rows.map((r) => ({
+    id: r.id,
+    type: r.itemType,
+    productService: r.productService,
+    qty: r.qty ?? "",
+    rate: r.rate ?? "",
+    amount: r.amount ?? "",
+    mainCategory: r.mainCategory ?? null,
+    subCategory: r.subCategory ?? null,
+    progressOverallPct: r.progressOverallPct ?? undefined,
+    completedAmount: r.completedAmount ?? undefined,
+    previouslyInvoicedPct: r.previouslyInvoicedPct ?? undefined,
+    previouslyInvoicedAmount: r.previouslyInvoicedAmount ?? undefined,
+    newProgressPct: r.newProgressPct ?? undefined,
+    thisBill: r.thisBill ?? undefined,
+    optionalPackageNumber: r.optionalPackageNumber ?? undefined,
+    columnBLabel: r.columnBLabel ?? undefined,
+    isAddendumHeader: r.isAddendumHeader ?? undefined,
+    addendumNumber: r.addendumNumber ?? undefined,
+    addendumUrlId: r.addendumUrlId ?? undefined,
+    isBlankRow: r.isBlankRow ?? undefined,
+  }));
+
+  return {
+    project: { orderNo: project.orderNo ?? null, clientName: project.clientName ?? null },
+    items,
+  };
+}
+
+/**
+ * Verify that a parsed contract's order number matches the existing project.
+ * Returns an error message string on mismatch, or null if OK.
+ */
+function verifyContractIdentity(
+  existingOrderNo: string | null,
+  parsedOrderNo: string | null
+): string | null {
+  if (!existingOrderNo || !parsedOrderNo) return null; // skip if either missing
+  if (existingOrderNo.trim() === parsedOrderNo.trim()) return null;
+  return `Contract identity mismatch: project has order #${existingOrderNo} but parsed data has order #${parsedOrderNo}`;
 }
 
 async function runLinksFlow(opts: {
   originalContractUrl: string;
   addendumLinks: string[];
   locationOverride?: Location | null;
-}): Promise<{ location: Location; items: OrderItem[] }> {
-  const { originalContractUrl, addendumLinks, locationOverride } = opts;
-  let items: OrderItem[] = [];
+  existingProjectId?: string;
+}): Promise<{
+  location: Location;
+  items: OrderItem[];
+  mergeInfo?: {
+    existingItemCount: number;
+    newAddendumCount: number;
+    skippedDuplicateCount: number;
+    totalItemCount: number;
+  };
+}> {
+  const { originalContractUrl, addendumLinks, locationOverride, existingProjectId } = opts;
+  let freshItems: OrderItem[] = [];
   let location: Location = {
     orderNo: "",
     streetAddress: "",
@@ -84,27 +133,76 @@ async function runLinksFlow(opts: {
     zip: "",
   };
 
+  // Fetch existing project data if appending
+  let existingData: Awaited<ReturnType<typeof fetchExistingProjectData>> = null;
+  if (existingProjectId) {
+    existingData = await fetchExistingProjectData(existingProjectId);
+  }
+
   if (originalContractUrl.trim()) {
     const html = await fetchAddendumHTML(originalContractUrl);
     const contractId = extractAddendumNumber(originalContractUrl);
-    const allItems = parseOriginalContract(html, contractId, originalContractUrl);
-    items = allItems.filter((it) => !it.isOptional);
+
+    // Only parse original contract items if this is a fresh parse (no existing project)
+    if (!existingData) {
+      const allItems = parseOriginalContract(html, contractId, originalContractUrl);
+      freshItems = allItems.filter((it) => !it.isOptional);
+    }
+
     if (!locationOverride) {
       const fromHtml = extractLocation(html);
       if (fromHtml.orderNo || fromHtml.streetAddress) location = fromHtml;
     }
   }
 
-  let addendumData: AddendumData[] = [];
-  if (addendumLinks.length > 0) {
-    addendumData = await fetchAndParseAddendums(addendumLinks);
-  }
-
   if (locationOverride) {
     location = { ...location, ...locationOverride };
   }
 
-  const merged = mergeAddendumDataIntoItems(items, addendumData);
+  // Deduplicate addendum URLs
+  const dedupedLinks = deduplicateUrls(addendumLinks);
+
+  // Fetch and parse addendums
+  let addendumData: AddendumData[] = [];
+  if (dedupedLinks.length > 0) {
+    addendumData = await fetchAndParseAddendums(dedupedLinks);
+  }
+
+  let merged: OrderItem[];
+  let mergeInfo: { existingItemCount: number; newAddendumCount: number; skippedDuplicateCount: number; totalItemCount: number } | undefined;
+
+  if (existingData) {
+    // Identity verification
+    const identityError = verifyContractIdentity(existingData.project.orderNo, location.orderNo || null);
+    if (identityError) {
+      throw new Error(identityError);
+    }
+
+    // Filter out already-imported addendums
+    const existingAddendumIds = getExistingAddendumIds(existingData.items);
+    const newAddendums = filterNewAddendums(addendumData, existingAddendumIds);
+    const skippedCount = addendumData.length - newAddendums.length;
+
+    // Merge existing with new addendums
+    merged = mergeExistingWithNewAddendums(existingData.items, newAddendums);
+
+    // Safety check — if merge produced nothing new, preserve existing
+    const safety = validateMergeSafety(existingData.items, merged, existingProjectId);
+    if (!safety.safe) {
+      merged = existingData.items.map((item) => ({ ...item }));
+    }
+
+    mergeInfo = {
+      existingItemCount: existingData.items.length,
+      newAddendumCount: newAddendums.length,
+      skippedDuplicateCount: skippedCount,
+      totalItemCount: merged.length,
+    };
+  } else {
+    // Fresh parse — merge fresh items with addendums
+    merged = mergeExistingWithNewAddendums(freshItems, addendumData);
+  }
+
   const filtered = filterItems(
     merged,
     includeMainCategoriesDefault,
@@ -117,7 +215,7 @@ async function runLinksFlow(opts: {
     ? { ...location, contractDate }
     : location;
 
-  return { location: locationWithDate, items: filtered };
+  return { location: locationWithDate, items: filtered, mergeInfo };
 }
 
 function toLocationResponse(loc: Location): Record<string, unknown> {
@@ -161,6 +259,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const existingProjectId =
+      typeof body.existingProjectId === "string" && body.existingProjectId.trim()
+        ? body.existingProjectId.trim()
+        : undefined;
+
+    // Validate existingProjectId exists in DB before proceeding
+    if (existingProjectId) {
+      const existing = await fetchExistingProjectData(existingProjectId);
+      if (!existing) {
+        return NextResponse.json(
+          { error: "Project not found", existingProjectId },
+          { status: 404 }
+        );
+      }
+    }
+
     if (body.mode === "links") {
       const originalContractUrl =
         typeof body.originalContractUrl === "string" &&
@@ -173,13 +287,15 @@ export async function POST(request: NextRequest) {
           )
         : [];
 
-      if (!originalContractUrl) {
+      if (!originalContractUrl && !existingProjectId) {
         return NextResponse.json(
-          { error: "originalContractUrl is required for links mode" },
+          { error: "originalContractUrl is required for links mode (or provide existingProjectId for addendum-only)" },
           { status: 400 }
         );
       }
-      const allUrls = [originalContractUrl, ...addendumLinks];
+      const allUrls = [originalContractUrl, ...addendumLinks].filter(
+        (u): u is string => u !== null && u.trim().length > 0
+      );
       const invalid = allUrls.filter((u) => !validateAddendumUrl(u));
       if (invalid.length > 0) {
         return NextResponse.json(
@@ -191,9 +307,10 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const { location, items } = await runLinksFlow({
-        originalContractUrl,
+      const { location, items, mergeInfo } = await runLinksFlow({
+        originalContractUrl: originalContractUrl ?? "",
         addendumLinks,
+        existingProjectId,
       });
       const orderItemsValidation = validateOrderItemsTotal(
         items,
@@ -212,6 +329,7 @@ export async function POST(request: NextRequest) {
           difference: orderItemsValidation.difference,
           message: orderItemsValidation.message,
         },
+        ...(mergeInfo ? { mergeInfo } : {}),
       };
       return NextResponse.json({
         success: true,
@@ -290,10 +408,11 @@ export async function POST(request: NextRequest) {
       const originalContractUrl = extractedLinks.originalContractUrl ?? "";
       const addendumLinks = extractedLinks.addendumUrls ?? [];
       const locationFromEml = extractLocation(parsed.text);
-      const { location, items } = await runLinksFlow({
+      const { location, items, mergeInfo } = await runLinksFlow({
         originalContractUrl,
         addendumLinks,
         locationOverride: locationFromEml,
+        existingProjectId,
       });
       const orderItemsValidation = validateOrderItemsTotal(
         items,
@@ -313,6 +432,7 @@ export async function POST(request: NextRequest) {
           difference: orderItemsValidation.difference,
           message: orderItemsValidation.message,
         },
+        ...(mergeInfo ? { mergeInfo } : {}),
       };
       return NextResponse.json({
         success: true,
