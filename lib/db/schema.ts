@@ -237,6 +237,28 @@ export const projectVoiceNotes = pgTable(
 );
 
 // ──────────────────────────────────────────────────────────────────────────
+// WEBHOOK LOGS
+// ──────────────────────────────────────────────────────────────────────────
+
+export const webhookLogs = pgTable("webhook_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  source: varchar("source", { length: 50 }).notNull(), // "zapier", "manual", etc.
+  action: varchar("action", { length: 20 }), // "created", "updated", "skipped", "error"
+  orderNo: varchar("order_no", { length: 255 }),
+  clientName: varchar("client_name", { length: 255 }),
+  projectId: uuid("project_id"),
+  emailSubject: varchar("email_subject", { length: 500 }),
+  itemCount: integer("item_count"),
+  payloadKeys: text("payload_keys"), // JSON array of field names
+  payloadSizes: text("payload_sizes"), // JSON object of field→length
+  preParseResult: jsonb("pre_parse_result"),
+  parseResult: jsonb("parse_result"), // item count, types, first few items
+  errorMessage: text("error_message"),
+  errorStack: text("error_stack"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ──────────────────────────────────────────────────────────────────────────
 // PERMITS MODULE
 // ──────────────────────────────────────────────────────────────────────────
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { preParseEml, getCleanText } from "../../../../lib/preParseEml";
 import { db } from "../../../../lib/db";
-import { projects, projectContractItems, projectSelectedItems } from "../../../../lib/db/schema";
+import { projects, projectContractItems, projectSelectedItems, webhookLogs } from "../../../../lib/db/schema";
 import { eq } from "drizzle-orm";
 import {
   extractOrderItems,
@@ -21,7 +21,44 @@ import {
 
 export const runtime = "nodejs";
 
-type WebhookAction = "created" | "updated" | "skipped";
+type WebhookAction = "created" | "updated" | "skipped" | "error";
+
+async function saveWebhookLog(data: {
+  source: string;
+  action: string;
+  orderNo?: string;
+  clientName?: string;
+  projectId?: string;
+  emailSubject?: string;
+  itemCount?: number;
+  payloadKeys?: string[];
+  payloadSizes?: Record<string, unknown>;
+  preParseResult?: Record<string, unknown> | null;
+  parseResult?: Record<string, unknown> | null;
+  errorMessage?: string;
+  errorStack?: string;
+}): Promise<void> {
+  if (!db) return;
+  try {
+    await db.insert(webhookLogs).values({
+      source: data.source,
+      action: data.action,
+      orderNo: data.orderNo ?? null,
+      clientName: data.clientName ?? null,
+      projectId: data.projectId ?? null,
+      emailSubject: data.emailSubject ?? null,
+      itemCount: data.itemCount ?? null,
+      payloadKeys: data.payloadKeys ? JSON.stringify(data.payloadKeys) : null,
+      payloadSizes: data.payloadSizes ? JSON.stringify(data.payloadSizes) : null,
+      preParseResult: data.preParseResult ?? null,
+      parseResult: data.parseResult ?? null,
+      errorMessage: data.errorMessage ?? null,
+      errorStack: data.errorStack ?? null,
+    });
+  } catch (logErr) {
+    console.error("[webhook/contract-email] Failed to save webhook log:", logErr);
+  }
+}
 
 interface WebhookResponse {
   action: WebhookAction;
@@ -82,18 +119,51 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Shared state for logging
+  let logPayloadKeys: string[] = [];
+  let logPayloadSizes: Record<string, unknown> = {};
+  let logPreParse: Record<string, unknown> | null = null;
+  let logEmailSubject: string | undefined;
+
   try {
     const body = await request.json();
+
+    // Log full payload keys and sizes for debugging
+    logPayloadKeys = Object.keys(body);
+    logPayloadSizes = Object.fromEntries(
+      logPayloadKeys.map((k) => [k, typeof body[k] === "string" ? body[k].length : typeof body[k]])
+    );
+    logEmailSubject = body.email_subject ?? undefined;
+    console.log("[webhook/contract-email] Payload keys:", logPayloadKeys);
+    console.log("[webhook/contract-email] Payload field sizes:", logPayloadSizes);
+    if (body.email_subject) console.log("[webhook/contract-email] email_subject:", body.email_subject);
+    if (body.email_from) console.log("[webhook/contract-email] email_from:", body.email_from);
+    if (body.message_id) console.log("[webhook/contract-email] message_id:", body.message_id);
+
     const eml = body.eml;
     if (!eml || typeof eml !== "string" || !eml.trim()) {
+      console.error("[webhook/contract-email] Missing eml field. Available fields:", logPayloadKeys);
       return NextResponse.json(
-        { error: "Missing or empty 'eml' field (base64 EML)" },
+        { error: "Missing or empty 'eml' field (base64 EML)", availableFields: logPayloadKeys },
         { status: 400 }
       );
     }
 
+    console.log("[webhook/contract-email] EML base64 length:", eml.length);
+
     // Pre-parse to extract identity and links
     const preParse = await preParseEml(eml);
+    logPreParse = {
+      orderNo: preParse.orderNo,
+      clientName: preParse.clientName,
+      subject: preParse.subject,
+      hasOriginalContract: preParse.hasOriginalContract,
+      addendumCount: preParse.addendumCount,
+      streetAddress: preParse.streetAddress,
+      orderGrandTotal: preParse.orderGrandTotal,
+    };
+    console.log("[webhook/contract-email] Pre-parse result:", logPreParse);
+
     if (!preParse.orderNo) {
       return NextResponse.json(
         { error: "Could not extract Order ID from email" },
@@ -103,9 +173,11 @@ export async function POST(request: NextRequest) {
 
     // Check if project exists by orderNo
     const existingProject = await findProjectByOrderNo(preParse.orderNo);
+    console.log("[webhook/contract-email] Existing project lookup:", existingProject ? { id: existingProject.id, name: existingProject.name } : "NOT FOUND");
 
     // Determine email type by presence of links
     const hasLinks = preParse.hasOriginalContract || preParse.addendumCount > 0;
+    console.log("[webhook/contract-email] Flow:", { hasLinks, existingProject: !!existingProject });
 
     if (existingProject && hasLinks) {
       // --- EXISTING PROJECT + LINKS: append addendums ---
@@ -162,15 +234,26 @@ export async function POST(request: NextRequest) {
 
     if (hasLinks) {
       // Links mode: fetch original contract + addendums from ProDBX
+      console.log("[webhook/contract-email] Using LINKS flow");
       const { location, items } = await runLinksFlow({
         originalContractUrl: preParse.originalContractUrl ?? "",
         addendumLinks: preParse.addendumUrls,
       });
+      console.log("[webhook/contract-email] Links flow result:", items.length, "items");
       parsedItems = { location: location as unknown as Record<string, unknown>, items };
     } else {
       // Inline table mode: parse from EML HTML
+      console.log("[webhook/contract-email] Using INLINE TABLE flow");
       const buffer = Buffer.from(eml, "base64");
       const parsed = await parseEML(buffer);
+      console.log("[webhook/contract-email] mailparser result:", {
+        htmlType: typeof parsed.html,
+        htmlIsFalsy: !parsed.html,
+        htmlLength: typeof parsed.html === "string" ? parsed.html.length : 0,
+        textLength: parsed.text?.length ?? 0,
+        textHasTable: /<table[\s>]/i.test(parsed.text ?? ""),
+        textHasTablePos: /class="pos"/i.test(parsed.text ?? ""),
+      });
       const cleanText = getCleanText(parsed);
       const location = extractLocation(cleanText);
       // Zapier-constructed EMLs may lack MIME Content-Type headers,
@@ -178,6 +261,7 @@ export async function POST(request: NextRequest) {
       // Fall back to .text if .html is empty but .text contains HTML tags.
       let htmlContent = parsed.html;
       if (!htmlContent && parsed.text && /<table[\s>]/i.test(parsed.text)) {
+        console.log("[webhook/contract-email] Falling back to parsed.text as HTML source");
         htmlContent = parsed.text;
       }
       if (!htmlContent) {
@@ -186,7 +270,12 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      console.log("[webhook/contract-email] HTML content length for table extraction:", htmlContent.length);
       const items = extractOrderItems(htmlContent);
+      console.log("[webhook/contract-email] extractOrderItems result:", items.length, "items");
+      items.forEach((item, i) => {
+        console.log(`[webhook/contract-email] Item ${i}: type=${item.type} | ${(item.productService ?? "").substring(0, 60)} | qty=${item.qty} | amt=${item.amount}`);
+      });
       parsedItems = { location: location as unknown as Record<string, unknown>, items };
     }
 
@@ -261,10 +350,42 @@ export async function POST(request: NextRequest) {
       clientName: preParse.clientName,
       itemCount: typedItems.length,
     };
+
+    // Log success with item details
+    const itemSummary = typedItems.slice(0, 10).map((it, i) => ({
+      idx: i, type: it.type, name: (it.productService ?? "").substring(0, 60), qty: it.qty, amt: it.amount,
+    }));
+    await saveWebhookLog({
+      source: "zapier",
+      action: "created",
+      orderNo: preParse.orderNo,
+      clientName: preParse.clientName,
+      projectId: newProject.id,
+      emailSubject: logEmailSubject,
+      itemCount: typedItems.length,
+      payloadKeys: logPayloadKeys,
+      payloadSizes: logPayloadSizes,
+      preParseResult: logPreParse,
+      parseResult: { totalItems: typedItems.length, first10: itemSummary },
+    });
+
     return NextResponse.json(response);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Webhook processing failed";
+    const stack = err instanceof Error ? err.stack : undefined;
     console.error("[webhook/contract-email]", err);
+    await saveWebhookLog({
+      source: "zapier",
+      action: "error",
+      orderNo: logPreParse?.orderNo as string | undefined,
+      clientName: logPreParse?.clientName as string | undefined,
+      emailSubject: logEmailSubject,
+      payloadKeys: logPayloadKeys,
+      payloadSizes: logPayloadSizes,
+      preParseResult: logPreParse,
+      errorMessage: message,
+      errorStack: stack,
+    });
     return NextResponse.json(
       { error: "Webhook processing failed", details: message },
       { status: 500 }

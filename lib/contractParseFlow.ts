@@ -239,6 +239,15 @@ export async function runLinksFlow(opts: {
 }
 
 /**
+ * Convert a value to a decimal-safe string for Postgres.
+ * Returns null for null, undefined, and empty strings.
+ */
+function toDec(s: number | string | null | undefined): string | null {
+  if (s == null || s === "") return null;
+  return String(s);
+}
+
+/**
  * Insert contract items into the database for a project.
  * Reusable by both POST /api/projects and the webhook.
  */
@@ -254,17 +263,17 @@ export async function insertContractItems(
       rowIndex: i,
       itemType: it.type ?? "item",
       productService: it.productService ?? "",
-      qty: it.qty != null ? String(it.qty) : null,
-      rate: it.rate != null ? String(it.rate) : null,
-      amount: it.amount != null ? String(it.amount) : null,
+      qty: toDec(it.qty),
+      rate: toDec(it.rate),
+      amount: toDec(it.amount),
       mainCategory: it.mainCategory ?? null,
       subCategory: it.subCategory ?? null,
-      progressOverallPct: it.progressOverallPct != null ? String(it.progressOverallPct) : null,
-      completedAmount: it.completedAmount != null ? String(it.completedAmount) : null,
-      previouslyInvoicedPct: it.previouslyInvoicedPct != null ? String(it.previouslyInvoicedPct) : null,
-      previouslyInvoicedAmount: it.previouslyInvoicedAmount != null ? String(it.previouslyInvoicedAmount) : null,
-      newProgressPct: it.newProgressPct != null ? String(it.newProgressPct) : null,
-      thisBill: it.thisBill != null ? String(it.thisBill) : null,
+      progressOverallPct: toDec(it.progressOverallPct),
+      completedAmount: toDec(it.completedAmount),
+      previouslyInvoicedPct: toDec(it.previouslyInvoicedPct),
+      previouslyInvoicedAmount: toDec(it.previouslyInvoicedAmount),
+      newProgressPct: toDec(it.newProgressPct),
+      thisBill: toDec(it.thisBill),
       optionalPackageNumber:
         typeof it.optionalPackageNumber === "number" ? it.optionalPackageNumber : null,
       columnBLabel: it.columnBLabel ?? null,
