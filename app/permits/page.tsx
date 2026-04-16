@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { lightboxTrialLabel } from "@/lib/permits/lightboxTrial";
 
 const PHASE_BADGE = "inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500";
 
@@ -180,6 +181,76 @@ const TOOLS = [
   },
 ];
 
+/* ── Lightbox API (Trial) tools ── */
+
+function IconBuilding() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect x="3" y="4" width="14" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="6" y1="7.5" x2="9" y2="7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="11" y1="7.5" x2="14" y2="7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="6" y1="11" x2="9" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="11" y1="11" x2="14" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="7.5" y="13.5" width="5" height="3.5" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function IconDollar() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <circle cx="10" cy="10" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10 5v10M12.5 8c0-1.1-1.12-2-2.5-2s-2.5.9-2.5 2 1.12 2 2.5 2 2.5.9 2.5 2-1.12 2-2.5 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconCube() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M10 2L17.5 6.5v7L10 18l-7.5-4.5v-7L10 2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M10 10v8M10 10l7.5-3.5M10 10L2.5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const LIGHTBOX_TRIAL_BADGE = "inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-600";
+
+const LIGHTBOX_TOOLS = [
+  {
+    id: "lightbox-property",
+    Icon: IconBuilding,
+    title: "Property & Owner Lookup",
+    description: "Parcel details, owner info, land use, lot size, and recent transaction history.",
+    href: "/permits/lightbox-property",
+    sample: '"1556 Geyser St, Upland CA 91784"',
+  },
+  {
+    id: "lightbox-zoning",
+    Icon: IconMap,
+    title: "Zoning Report",
+    description: "Zoning code, setbacks, height limits, site coverage, and lot area minimums — nationwide.",
+    href: "/permits/lightbox-zoning",
+    sample: '"1556 Geyser St, Upland CA 91784"',
+  },
+  {
+    id: "lightbox-assessment",
+    Icon: IconDollar,
+    title: "Assessment & Valuation",
+    description: "Assessed values, AVM estimate, tax info, structure details, and loan history.",
+    href: "/permits/lightbox-assessment",
+    sample: '"1556 Geyser St, Upland CA 91784"',
+  },
+  {
+    id: "lightbox-structure",
+    Icon: IconCube,
+    title: "Structure Details",
+    description: "Building footprint area, height, stories, and ground elevation from Lightbox RE.",
+    href: "/permits/lightbox-structure",
+    sample: '"1556 Geyser St, Upland CA 91784"',
+  },
+];
+
 const WORKFLOW = [
   {
     step: "1",
@@ -270,6 +341,59 @@ export default function PermitsDashboard() {
                 </div>
                 <div className="flex-1">
                   <h3 className="mb-1 text-sm font-semibold text-slate-900 group-hover:text-blue-700">
+                    {t.title}
+                  </h3>
+                  <p className="text-xs leading-relaxed text-slate-500">{t.description}</p>
+                </div>
+                <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Sample input
+                  </span>
+                  <span className="mt-0.5 block truncate text-[11px] text-slate-600">
+                    {t.sample}
+                  </span>
+                </div>
+              </Link>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
+      {/* Lightbox API (Trial) */}
+      <section aria-labelledby="lightbox-heading">
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          variants={fadeUp}
+          custom={6}
+          className="mb-6 flex items-center gap-3"
+        >
+          <h2 id="lightbox-heading" className="text-lg font-semibold text-slate-900">
+            Lightbox API
+          </h2>
+          <span className={LIGHTBOX_TRIAL_BADGE}>{lightboxTrialLabel()}</span>
+        </motion.div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
+          {LIGHTBOX_TOOLS.map((t, i) => (
+            <motion.div
+              key={t.id}
+              initial="hidden"
+              animate="visible"
+              custom={i + 7}
+              variants={fadeUp}
+            >
+              <Link
+                href={t.href}
+                className="group flex h-full flex-col gap-3 rounded-xl border border-amber-200/60 bg-white p-5 shadow-sm transition-all hover:border-amber-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              >
+                <div className="flex items-start justify-between">
+                  <span className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-600 transition-colors group-hover:bg-amber-100">
+                    <t.Icon />
+                  </span>
+                  <span className={LIGHTBOX_TRIAL_BADGE}>{lightboxTrialLabel()}</span>
+                </div>
+                <div className="flex-1">
+                  <h3 className="mb-1 text-sm font-semibold text-slate-900 group-hover:text-amber-700">
                     {t.title}
                   </h3>
                   <p className="text-xs leading-relaxed text-slate-500">{t.description}</p>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
+import { lightboxTrialLabel } from "@/lib/permits/lightboxTrial";
 
 function IconGrid() {
   return (
@@ -72,14 +73,69 @@ function IconChevronLeft() {
   );
 }
 
-const TOOLS = [
-  { href: "/permits", label: "Dashboard", Icon: IconGrid },
-  { href: "/permits/zoning-lookup", label: "Zoning Lookup", Icon: IconMap },
-  { href: "/permits/lot-calculator", label: "Lot Calculator", Icon: IconRuler },
-  { href: "/permits/checklist-generator", label: "Checklist", Icon: IconChecklist },
-  { href: "/permits/redline-drafter", label: "Redline Drafter", Icon: IconEdit },
-  { href: "/permits/pdf-assembler", label: "PDF Assembler", Icon: IconFile },
-] as const;
+function IconBuilding() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2" y="3" width="12" height="11" rx="1" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="5" y1="6" x2="7" y2="6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="9" y1="6" x2="11" y2="6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="5" y1="9" x2="7" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="9" y1="9" x2="11" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="6" y="11" width="4" height="3" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function IconDollar() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 4v8M10 6.5c0-.83-.9-1.5-2-1.5s-2 .67-2 1.5.9 1.5 2 1.5 2 .67 2 1.5-.9 1.5-2 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconCube() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 1.5L14 5v6l-6 3.5L2 11V5L8 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M8 8v6.5M8 8l6-3M8 8L2 5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+interface ToolItem {
+  href: string;
+  label: string;
+  Icon: () => React.JSX.Element;
+}
+
+interface SidebarSection {
+  title?: string;
+  items: readonly ToolItem[];
+}
+
+const SECTIONS: readonly SidebarSection[] = [
+  {
+    items: [
+      { href: "/permits", label: "Dashboard", Icon: IconGrid },
+      { href: "/permits/zoning-lookup", label: "Zoning Lookup", Icon: IconMap },
+      { href: "/permits/lot-calculator", label: "Lot Calculator", Icon: IconRuler },
+      { href: "/permits/checklist-generator", label: "Checklist", Icon: IconChecklist },
+      { href: "/permits/redline-drafter", label: "Redline Drafter", Icon: IconEdit },
+      { href: "/permits/pdf-assembler", label: "PDF Assembler", Icon: IconFile },
+    ],
+  },
+  {
+    title: `Lightbox API (${lightboxTrialLabel()})`,
+    items: [
+      { href: "/permits/lightbox-property", label: "Property Lookup", Icon: IconBuilding },
+      { href: "/permits/lightbox-zoning", label: "Zoning Report", Icon: IconMap },
+      { href: "/permits/lightbox-assessment", label: "Assessment", Icon: IconDollar },
+      { href: "/permits/lightbox-structure", label: "Structure", Icon: IconCube },
+    ],
+  },
+];
 
 export default function PermitsSidebar() {
   const pathname = usePathname();
@@ -111,28 +167,39 @@ export default function PermitsSidebar() {
       </div>
 
       {/* Tool nav */}
-      <div className="flex-1 space-y-0.5 px-2 py-3">
-        {TOOLS.map(({ href, label, Icon }) => {
-          const active = pathname === href;
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={clsx(
-                "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
-                active
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-              )}
-              aria-current={active ? "page" : undefined}
-            >
-              <span className={clsx("shrink-0", active ? "text-blue-600" : "text-slate-400")}>
-                <Icon />
-              </span>
-              <span>{label}</span>
-            </Link>
-          );
-        })}
+      <div className="flex-1 overflow-y-auto px-2 py-3">
+        {SECTIONS.map((section, si) => (
+          <div key={si} className={si > 0 ? "mt-4" : ""}>
+            {section.title && (
+              <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                {section.title}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {section.items.map(({ href, label, Icon }) => {
+                const active = pathname === href;
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={clsx(
+                      "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                      active
+                        ? "bg-blue-50 text-blue-700"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    )}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <span className={clsx("shrink-0", active ? "text-blue-600" : "text-slate-400")}>
+                      <Icon />
+                    </span>
+                    <span>{label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       <footer className="border-t border-slate-200 px-5 py-3 text-[11px] text-slate-400">
