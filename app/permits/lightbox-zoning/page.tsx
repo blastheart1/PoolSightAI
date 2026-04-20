@@ -119,27 +119,95 @@ export default function LightboxZoningPage() {
             </ResultCard>
 
             <ResultCard title="Dimensional Standards">
-              <table className="w-full text-sm">
-                <tbody className="divide-y divide-slate-100">
-                  {([
-                    ["Front Setback", result.frontSetback ?? "—"],
-                    ["Side Setback", result.sideSetback ?? "—"],
-                    ["Rear Setback", result.rearSetback ?? "—"],
-                    ["Max Building Height", result.maxBuildingHeight ?? "—"],
-                    ["Max Stories", result.maxStories ?? "—"],
-                    ["Max Site Coverage", result.maxSiteCoverage ?? "—"],
-                    ["Min Lot Area", result.minLotArea ?? "—"],
-                    ["Density / FAR", result.densityFloorArea ?? "—"],
-                  ] as const).map(([label, value]) => (
-                    <tr key={label}>
-                      <td className="w-40 py-2.5 pr-4 text-xs font-medium text-slate-400">
-                        {label}
-                      </td>
-                      <td className="py-2.5 text-slate-900">{value}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {(() => {
+                const standards = [
+                  ["Front Setback", result.frontSetback],
+                  ["Side Setback", result.sideSetback],
+                  ["Rear Setback", result.rearSetback],
+                  ["Max Building Height", result.maxBuildingHeight],
+                  ["Max Stories", result.maxStories],
+                  ["Max Site Coverage", result.maxSiteCoverage],
+                  ["Min Lot Area", result.minLotArea],
+                  ["Density / FAR", result.densityFloorArea],
+                ] as const;
+                const hasAnyStandard = standards.some(([, v]) => v != null && v !== "");
+                const hasZoningCode = Boolean(result.zoningCode);
+
+                if (!hasAnyStandard && hasZoningCode) {
+                  return (
+                    <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3.5 text-sm">
+                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-amber-700">
+                        No explicit dimensional standards returned
+                      </p>
+                      <p className="text-slate-900">
+                        Based on:{" "}
+                        <span className="font-semibold">{result.zoningCode}</span>
+                        {result.zoningCategory && result.zoningCategory !== "UNKNOWN" && (
+                          <span className="text-slate-500">
+                            {" "}· {result.zoningCategory}
+                          </span>
+                        )}
+                      </p>
+                      {result.description && (
+                        <p className="mt-2 text-slate-700">{result.description}</p>
+                      )}
+                      {result.summary && result.summary !== result.description && (
+                        <p className="mt-2 text-slate-700">{result.summary}</p>
+                      )}
+                      {result.permittedUse && (
+                        <p className="mt-2 text-slate-700">
+                          <span className="font-medium text-slate-600">
+                            Permitted use:
+                          </span>{" "}
+                          {result.permittedUse}
+                        </p>
+                      )}
+                      {result.ordinanceUrl && (
+                        <p className="mt-2">
+                          <a
+                            href={result.ordinanceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 underline hover:text-blue-800"
+                          >
+                            Refer to the ordinance for exact setbacks →
+                          </a>
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+
+                return (
+                  <>
+                    <table className="w-full text-sm">
+                      <tbody className="divide-y divide-slate-100">
+                        {standards.map(([label, value]) => (
+                          <tr key={label}>
+                            <td className="w-40 py-2.5 pr-4 text-xs font-medium text-slate-400">
+                              {label}
+                            </td>
+                            <td className="py-2.5 text-slate-900">
+                              {value ?? "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {hasZoningCode && (
+                      <p className="mt-3 text-xs text-slate-400">
+                        Based on:{" "}
+                        <span className="font-medium text-slate-500">
+                          {result.zoningCode}
+                        </span>
+                        {result.zoningCategory && result.zoningCategory !== "UNKNOWN" && (
+                          <span> · {result.zoningCategory}</span>
+                        )}
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </ResultCard>
 
             {(result.ordinanceUrl || result.zoningVintage) && (
