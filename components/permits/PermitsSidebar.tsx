@@ -119,7 +119,7 @@ const SECTIONS: readonly SidebarSection[] = [
   {
     items: [
       { href: "/permits", label: "Dashboard", Icon: IconGrid },
-      { href: "/permits/zoning-lookup", label: "Zoning Lookup", Icon: IconMap },
+      { href: "/permits/zoning-lookup", label: "LA Zoning Lookup", Icon: IconMap },
       { href: "/permits/lot-calculator", label: "Lot Calculator", Icon: IconRuler },
       { href: "/permits/checklist-generator", label: "Checklist", Icon: IconChecklist },
       { href: "/permits/redline-drafter", label: "Redline Drafter", Icon: IconEdit },

@@ -44,13 +44,30 @@ export default function ZoningLookupPage() {
       >
         <div className="mb-1 flex items-center gap-2">
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
-            Zoning & Parcel Lookup
+            LA Zoning Lookup
           </h1>
           <span className={BADGE}>Phase 1</span>
         </div>
-        <p className="mb-6 text-sm text-slate-500">
+        <p className="mb-4 text-sm text-slate-500">
           Enter an LA address to pull zoning, setbacks, overlays, and lot coverage from ZIMAS.
         </p>
+
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-medium">City of Los Angeles only</p>
+          <p className="mt-0.5 text-xs text-amber-700">
+            This tool queries ZIMAS, which covers City of LA parcels only.
+            Addresses in unincorporated LA County (e.g. View Park, Ladera
+            Heights, East LA) or other cities (Culver City, Beverly Hills,
+            Upland, etc.) will not return results — use the Lightbox{" "}
+            <a
+              href="/permits/lightbox-zoning"
+              className="underline hover:text-amber-900"
+            >
+              Zoning Report
+            </a>{" "}
+            for nationwide coverage.
+          </p>
+        </div>
 
         <form onSubmit={handleSubmit} className="mb-6 flex gap-2">
           <input

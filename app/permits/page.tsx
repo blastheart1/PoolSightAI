@@ -59,9 +59,9 @@ const TOOLS = [
   {
     id: "zoning-lookup",
     Icon: IconMap,
-    title: "Zoning & Parcel Lookup",
+    title: "LA Zoning Lookup",
     description:
-      "Pull zoning classification, setbacks, height limits, overlays, and lot coverage from ZIMAS for any LA address.",
+      "Pull zoning classification, setbacks, height limits, overlays, and lot coverage from ZIMAS. City of Los Angeles addresses only.",
     phase: "Phase 1",
     href: "/permits/zoning-lookup",
     sample: '"4567 Melrose Ave, Los Angeles, CA 90029"',
@@ -93,11 +93,11 @@ const TOOLS = [
       "Enter your **lot width and depth** in feet — this determines total lot area.",
       "Enter the **ground footprint** (first floor only) and **total floor area** across all floors.",
       "Enter your **proposed setbacks** from each property line.",
-      "Enter **zoning rules** (max coverage %, max FAR, min setbacks). Get these from **Zoning Lookup**.",
+      "Enter **zoning rules** (max coverage %, max FAR, min setbacks). Get these from **LA Zoning Lookup** or the Lightbox **Zoning Report**.",
       "Click **Calculate** — results show pass/fail/warning badges for every compliance check.",
     ],
     dos: [
-      "Run Zoning Lookup first and paste those numbers here for accurate checks.",
+      "Run LA Zoning Lookup (or Lightbox Zoning Report for non-LA addresses) first and paste those numbers here for accurate checks.",
       "Enter footprint (ground floor) separately from total floor area (used for FAR).",
     ],
     donts: [
