@@ -262,6 +262,32 @@ export const webhookLogs = pgTable("webhook_logs", {
 // PERMITS MODULE
 // ──────────────────────────────────────────────────────────────────────────
 
+// Lean single-table cache for Lightbox zoning lookups (trial).
+// Dedups API calls when the same address (normalized) is queried repeatedly.
+// Post-trial, this will be split into the 3-table pattern described in
+// test-files/lightbox-cache-plan.md.
+export const lightboxZoningCache = pgTable(
+  "lightbox_zoning_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    rawAddress: text("raw_address").notNull(),
+    normalizedAddress: text("normalized_address").notNull(),
+    parcelId: text("parcel_id"),
+    jurisdiction: text("jurisdiction"),
+    zoningData: jsonb("zoning_data"),
+    httpStatus: integer("http_status").notNull(),
+    fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    normalizedUnique: unique("lightbox_zoning_cache_normalized_unique").on(
+      table.normalizedAddress,
+    ),
+    parcelIdIdx: index("lightbox_zoning_cache_parcel_id_idx").on(
+      table.parcelId,
+    ),
+  }),
+);
+
 export const permitProjects = pgTable("permit_projects", {
   id: serial("id").primaryKey(),
   projectId: uuid("project_id").references(() => projects.id),

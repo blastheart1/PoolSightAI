@@ -9,32 +9,62 @@ import { lightboxTrialLabel } from "@/lib/permits/lightboxTrial";
 const BADGE =
   "inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-600";
 
+interface LookupMeta {
+  cached: boolean;
+  normalizedAddress: string;
+  fetchedAt: string | null;
+}
+
 export default function LightboxZoningPage() {
   const [address, setAddress] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<LightboxZoningResult | null>(null);
+  const [meta, setMeta] = useState<LookupMeta | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function runLookup(opts: { refresh: boolean }) {
     if (!address.trim()) return;
     setLoading(true);
     setError(null);
     setResult(null);
+    setMeta(null);
     try {
       const res = await fetch("/api/permits/lightbox-zoning", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ address }),
+        body: JSON.stringify({ address, refresh: opts.refresh }),
       });
       const json = await res.json();
-      if (!json.success) setError(json.error ?? "Unknown error");
-      else setResult(json.data);
+      if (!json.success) {
+        setError(json.error ?? "Unknown error");
+      } else {
+        setResult(json.data);
+        setMeta({
+          cached: Boolean(json.cached),
+          normalizedAddress: json.normalizedAddress ?? "",
+          fetchedAt: json.fetchedAt ?? null,
+        });
+      }
     } catch {
       setError("Network error — please try again.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await runLookup({ refresh: false });
+  }
+
+  function handleSearchAgain() {
+    setResult(null);
+    setMeta(null);
+    setError(null);
+  }
+
+  async function handleRefresh() {
+    await runLookup({ refresh: true });
   }
 
   return (
@@ -95,6 +125,63 @@ export default function LightboxZoningPage() {
             transition={{ duration: 0.3 }}
             className="space-y-4"
           >
+            {meta && (
+              <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Matched
+                  </p>
+                  <p className="truncate text-slate-900">
+                    {result.parcelId ? (
+                      <>
+                        Parcel{" "}
+                        <span className="font-mono text-xs text-slate-700">
+                          {result.parcelId}
+                        </span>
+                      </>
+                    ) : (
+                      "No parcel ID returned"
+                    )}
+                    {result.jurisdiction && (
+                      <span className="text-slate-500">
+                        {" "}· {result.jurisdiction}
+                      </span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {meta.cached ? (
+                      <>
+                        Cached lookup · no new API call
+                        {meta.fetchedAt &&
+                          ` · first fetched ${new Date(meta.fetchedAt).toLocaleString()}`}
+                      </>
+                    ) : (
+                      <>Fresh from Lightbox · saved to cache</>
+                    )}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSearchAgain}
+                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-100"
+                  >
+                    Wrong address? Search again
+                  </button>
+                  {meta.cached && (
+                    <button
+                      type="button"
+                      onClick={handleRefresh}
+                      disabled={loading}
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Refresh from API
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             <ResultCard title="Zoning Classification">
               <table className="w-full text-sm">
                 <tbody className="divide-y divide-slate-100">
