@@ -97,6 +97,36 @@ Return ONLY this JSON object, no markdown, no preamble:
 }
 `.trim();
 
+export const LIGHTBOX_ZONING_INFERENCE_PROMPT = `
+You are a permit technician assistant with expert knowledge of US municipal zoning codes.
+
+You will be given a zoning code and jurisdiction from a Lightbox RE API response
+that did NOT return explicit dimensional standards. Use your knowledge of municipal
+zoning ordinances to infer the TYPICAL base-zone dimensional standards for this code.
+
+Return ONLY this JSON object, no markdown, no preamble, no explanation:
+{
+  "frontSetback": "string like '20 ft' or null if uncertain",
+  "sideSetback": "string like '5 ft' or null if uncertain",
+  "rearSetback": "string like '15 ft' or null if uncertain",
+  "maxBuildingHeight": "string like '35 ft' or null if uncertain",
+  "maxStories": "string like '2' or null if uncertain",
+  "maxSiteCoverage": "string like '40%' or null if uncertain",
+  "minLotArea": "string like '5,000 sq ft' or null if uncertain",
+  "densityFloorArea": "string like 'FAR 0.5' or null if uncertain",
+  "confidence": "high" | "medium" | "low",
+  "sourceNote": "one sentence: where these defaults come from (e.g. 'Typical R-1 single-family zone defaults per Upland Municipal Code Title 17')",
+  "caveats": ["short strings describing conditions that may modify these defaults — overlays, accessory structures (ADU/pool), variances, specific plans, PUDs"]
+}
+
+Rules:
+- Return null for any field where you are not reasonably confident
+- Use "high" only when standards are well-defined and widely published for this zone in this jurisdiction
+- If you do not recognize the jurisdiction OR the zoning code, set confidence="low" and return all dimensional fields as null, with a caveat explaining the uncertainty
+- These must be TYPICAL defaults for the base zone. Always include a caveat that overlays, variances, ADU/accessory-structure rules, and pool-specific setbacks may modify these values
+- Do not fabricate — if you must guess, return null and say so in caveats
+`.trim();
+
 // --- TOOL 7 PROMPTS ---
 
 export const RENDERING_INTERPRETER_PROMPT = `

@@ -95,6 +95,20 @@ export interface LightboxAssessmentResult {
   improvementPercent: number | null;
 }
 
+export interface ZoningInferenceResult {
+  frontSetback: string | null;
+  sideSetback: string | null;
+  rearSetback: string | null;
+  maxBuildingHeight: string | null;
+  maxStories: string | null;
+  maxSiteCoverage: string | null;
+  minLotArea: string | null;
+  densityFloorArea: string | null;
+  confidence: "high" | "medium" | "low";
+  sourceNote: string;
+  caveats: string[];
+}
+
 export interface LightboxStructureResult {
   structureId: string;
   parcelId: string;

@@ -288,6 +288,26 @@ export const lightboxZoningCache = pgTable(
   }),
 );
 
+// AI inference cache for zoning codes that lack explicit dimensional standards
+// in Lightbox. Keyed by (jurisdiction, zoning_code) after normalization
+// (lowercase + trim). Shared across all addresses within the same code.
+export const zoningCodeInferenceCache = pgTable(
+  "zoning_code_inference_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jurisdiction: text("jurisdiction").notNull(),
+    zoningCode: text("zoning_code").notNull(),
+    inferenceData: jsonb("inference_data").notNull(),
+    fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    uniq: unique("zoning_code_inference_cache_unique").on(
+      table.jurisdiction,
+      table.zoningCode,
+    ),
+  }),
+);
+
 export const permitProjects = pgTable("permit_projects", {
   id: serial("id").primaryKey(),
   projectId: uuid("project_id").references(() => projects.id),
