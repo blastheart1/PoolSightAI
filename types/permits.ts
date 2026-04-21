@@ -35,6 +35,8 @@ export interface ZoningResult {
   lotCoverageMax: string;
   overlays: string[];
   rawSource: string;
+  /** Address as matched by the Census geocoder — may differ from the input (e.g. "1/2" units dropped) */
+  matchedAddress?: string;
 }
 
 export interface LotCalculatorInput {

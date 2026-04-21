@@ -70,25 +70,27 @@ async function projectToStatePlane(
 const ZONING_SERVICE_URL =
   "https://services5.arcgis.com/7nsPwEMP38bSkCjy/arcgis/rest/services/Zoning/FeatureServer/15/query";
 
+// Zone prefixes that are non-buildable and should be deprioritised when
+// a residential/commercial parcel is also present in the result set.
+const NON_BUILDABLE_PREFIXES = ["OS", "PF", "GW", "AG", "PB"];
+
+function isNonBuildable(zoning: string | undefined): boolean {
+  if (!zoning) return true;
+  const prefix = zoning.replace(/^\[.\]/, "").split("-")[0].toUpperCase();
+  return NON_BUILDABLE_PREFIXES.includes(prefix);
+}
+
 export interface ZimasRawParcel {
   Zoning?: string;
   CATEGORY?: string;
+  Shape__Area?: number;
   [key: string]: unknown;
 }
 
-/**
- * Query the LA City Zoning FeatureServer for the parcel at a given lat/lon.
- * Uses a small envelope (50 ft buffer) around the projected point because
- * strict point-in-polygon queries against this layer are unreliable.
- */
-export async function fetchZimasParcel(
-  lat: number,
-  lon: number
-): Promise<ZimasRawParcel | null> {
-  const proj = await projectToStatePlane(lon, lat);
-  if (!proj) return null;
-
-  const buffer = 150; // feet in State Plane units — needed because Census geocoder places points on street centerlines
+async function queryZimasEnvelope(
+  proj: { x: number; y: number },
+  buffer: number
+): Promise<ZimasRawParcel[]> {
   const envelope = {
     xmin: proj.x - buffer,
     ymin: proj.y - buffer,
@@ -100,20 +102,56 @@ export async function fetchZimasParcel(
     geometry: JSON.stringify(envelope),
     geometryType: "esriGeometryEnvelope",
     spatialRel: "esriSpatialRelIntersects",
-    outFields: "Zoning,CATEGORY",
+    outFields: "Zoning,CATEGORY,Shape__Area",
     returnGeometry: "false",
-    resultRecordCount: "1",
+    resultRecordCount: "5",
     f: "json",
   });
 
   const res = await fetch(`${ZONING_SERVICE_URL}?${params}`, {
     cache: "no-store",
   });
-  if (!res.ok) return null;
+  if (!res.ok) return [];
 
   const json = await res.json();
-  const features = json?.features;
-  if (!Array.isArray(features) || features.length === 0) return null;
+  return Array.isArray(json?.features)
+    ? (json.features.map((f: { attributes: ZimasRawParcel }) => f.attributes) as ZimasRawParcel[])
+    : [];
+}
 
-  return features[0].attributes as ZimasRawParcel;
+function selectBestParcel(features: ZimasRawParcel[]): ZimasRawParcel | null {
+  if (features.length === 0) return null;
+  if (features.length === 1) return features[0];
+
+  // Prefer buildable parcels over open space / public facilities
+  const buildable = features.filter((f) => !isNonBuildable(f.Zoning));
+  const pool = buildable.length > 0 ? buildable : features;
+
+  // Among candidates, pick the smallest polygon — closest match to the
+  // actual parcel the geocoded point landed on vs. a large adjacent zone.
+  return pool.slice().sort((a, b) => (a.Shape__Area ?? Infinity) - (b.Shape__Area ?? Infinity))[0];
+}
+
+/**
+ * Query the LA City Zoning FeatureServer for the parcel at a given lat/lon.
+ *
+ * Strategy:
+ * 1. Try a tight 75 ft envelope (covers street-centerline-to-parcel gap).
+ * 2. If no features found, retry with a 150 ft envelope as fallback.
+ * 3. From up to 5 returned features, prefer buildable zones over OS/PF/GW,
+ *    then pick the smallest polygon area (most likely the actual parcel).
+ */
+export async function fetchZimasParcel(
+  lat: number,
+  lon: number
+): Promise<ZimasRawParcel | null> {
+  const proj = await projectToStatePlane(lon, lat);
+  if (!proj) return null;
+
+  let features = await queryZimasEnvelope(proj, 75);
+  if (features.length === 0) {
+    features = await queryZimasEnvelope(proj, 150);
+  }
+
+  return selectBestParcel(features);
 }

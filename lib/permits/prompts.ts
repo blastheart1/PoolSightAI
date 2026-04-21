@@ -30,18 +30,22 @@ Return ONLY this JSON object, no markdown, no preamble, no explanation:
   "lotSize": "Not available — verify with title report",
   "allowedUses": ["list 3-5 typical allowed uses for this zone under LAMC"],
   "setbacks": {
-    "front": "typical front setback for this zone, e.g. '20 ft'",
-    "rear": "typical rear setback, e.g. '15 ft'",
-    "sideLeft": "typical side setback, e.g. '5 ft'",
-    "sideRight": "typical side setback, e.g. '5 ft'"
+    "front": "measurement only, e.g. '20 ft' or '0 ft'",
+    "rear": "measurement only, e.g. '15 ft' or '0 ft'",
+    "sideLeft": "measurement only, e.g. '5 ft' or '0 ft'",
+    "sideRight": "measurement only, e.g. '5 ft' or '0 ft'"
   },
-  "heightLimit": "typical height limit for this zone, e.g. '33 ft' or '45 ft'",
-  "lotCoverageMax": "typical max lot coverage for this zone, e.g. '40%' or '50%'",
-  "overlays": [],
+  "heightLimit": "measurement only, e.g. '33 ft' or '45 ft'",
+  "lotCoverageMax": "percentage only, e.g. '40%' or '50%', or 'None' if no statutory maximum",
+  "overlays": ["list each overlay, Q condition, height district modifier, or CPIO as a separate string — include any caveats or qualifications here, not in the setback/height/coverage fields"],
   "rawSource": "one-line description: zoning code + category"
 }
 
-Note: setbacks and coverage are typical LAMC defaults for the base zone — they may be modified by Q conditions, specific plans, or overlays. Always note this is an estimate.
+STRICT FORMAT RULES — violations cause downstream UI breakage:
+- setbacks.front/rear/sideLeft/sideRight: SHORT measurement string ONLY. Format: "<number> ft". No parentheses, no explanations, no "verify" language, no conditionals. Examples of CORRECT values: "5 ft", "20 ft", "0 ft". Examples of WRONG values: "15 ft (typical default)", "0 ft (none required unless abutting residential)", "varies".
+- heightLimit: SHORT measurement string ONLY. Format: "<number> ft". No parentheses, no story counts, no qualifiers. CORRECT: "33 ft". WRONG: "33 ft (2 stories max)", "45 ft (verify CPIO)".
+- lotCoverageMax: percentage or "None". No parentheses, no qualifiers. CORRECT: "40%". WRONG: "40% (typical estimate)".
+- Any qualification, caveat, overlay modifier, or "verify with LADBS" note MUST go into the overlays array, not into the numeric fields.
 `.trim();
 
 export const CHECKLIST_GENERATOR_PROMPT = (projectType: string, qualifiers: string[]) => `

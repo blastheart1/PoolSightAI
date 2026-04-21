@@ -6,6 +6,7 @@ import ResultCard from "@/components/permits/ResultCard";
 import type { ZoningResult } from "@/types/permits";
 
 const BADGE = "inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500";
+const AI_BADGE = "inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700";
 
 export default function ZoningLookupPage() {
   const [address, setAddress] = useState("");
@@ -110,19 +111,31 @@ export default function ZoningLookupPage() {
           >
             <ResultCard title="Zoning Summary">
               <div className="space-y-5">
+                {/* Matched address warning */}
+                {result.matchedAddress && (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                    <span className="font-medium text-slate-600">Geocoded as: </span>
+                    {result.matchedAddress}
+                    {result.matchedAddress.toLowerCase() !== address.trim().toLowerCase() && (
+                      <span className="ml-1.5 font-medium text-amber-700">— differs from your input, verify the parcel is correct</span>
+                    )}
+                  </div>
+                )}
+
                 {/* Key fields — single column table for long values */}
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-100">
                     {[
-                      { label: "Parcel", value: result.parcelNumber },
-                      { label: "Zoning", value: result.zoningClassification },
-                      { label: "Lot Size", value: result.lotSize },
-                      { label: "Height Limit", value: result.heightLimit },
-                      { label: "Max Lot Coverage", value: result.lotCoverageMax },
-                    ].map(({ label, value }) => (
+                      { label: "Parcel", value: result.parcelNumber, ai: false },
+                      { label: "Zoning", value: result.zoningClassification, ai: false },
+                      { label: "Lot Size", value: result.lotSize, ai: false },
+                      { label: "Height Limit", value: result.heightLimit, ai: true },
+                      { label: "Max Lot Coverage", value: result.lotCoverageMax, ai: true },
+                    ].map(({ label, value, ai }) => (
                       <tr key={label}>
                         <td className="w-40 shrink-0 py-2.5 pr-4 align-top text-xs font-medium text-slate-400">
-                          {label}
+                          <span>{label}</span>
+                          {ai && <span className={`ml-1.5 ${AI_BADGE}`}>AI est.</span>}
                         </td>
                         <td className="py-2.5 text-slate-900">{value || "—"}</td>
                       </tr>
@@ -130,11 +143,16 @@ export default function ZoningLookupPage() {
                   </tbody>
                 </table>
 
-                {/* Setbacks — simple table */}
+                {/* Setbacks — AI estimated */}
                 <div>
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    Setbacks
-                  </p>
+                  <div className="mb-2 flex items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Setbacks
+                    </p>
+                    <span className={AI_BADGE}>
+                      ✦ AI Estimated
+                    </span>
+                  </div>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-100">
@@ -156,6 +174,10 @@ export default function ZoningLookupPage() {
                       ))}
                     </tbody>
                   </table>
+                  {/* Disclaimer */}
+                  <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+                    <span className="font-semibold">How these were determined:</span> ZIMAS returns only the zoning code ({result.zoningClassification}) and land use category — it does not include dimensional standards. These setback values are LAMC Title 22 typical defaults for the {result.zoningClassification} base zone, inferred by AI. They may be modified by Q conditions, specific plans, hillside ordinances, or overlay districts. <span className="font-semibold">Do not use for permit submission — verify with LADBS or a licensed professional.</span>
+                  </p>
                 </div>
 
                 {result.allowedUses.length > 0 && (

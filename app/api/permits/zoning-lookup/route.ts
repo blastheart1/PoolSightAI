@@ -105,6 +105,7 @@ export async function POST(req: Request) {
       );
     }
 
+    result.matchedAddress = geo.matchedAddress;
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     console.error("zoning-lookup error:", err);
