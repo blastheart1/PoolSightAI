@@ -25,6 +25,27 @@ export interface DrawingAnalysisResult {
   flagged: string[];
 }
 
+export type ZoneType =
+  | "residential"
+  | "commercial"
+  | "industrial"
+  | "public_facilities"
+  | "open_space"
+  | "unknown";
+
+export interface PoolSetbacks {
+  /** From any property line — LAMC 12.21-A,4(k) */
+  fromPropertyLine: string;
+  /** From the main dwelling or any structure — LAMC 12.21-A,4(k) */
+  fromDwelling: string;
+  /** Front yard — pools not permitted in required front yard */
+  frontYard: string;
+  /** Equipment pad — same property-line rule applies */
+  equipmentPad: string;
+  /** Zone-specific caveats (hillside, CPIO, Q conditions, etc.) */
+  caveats: string[];
+}
+
 export interface ZoningResult {
   parcelNumber: string;
   zoningClassification: string;
@@ -37,6 +58,10 @@ export interface ZoningResult {
   rawSource: string;
   /** Address as matched by the Census geocoder — may differ from the input (e.g. "1/2" units dropped) */
   matchedAddress?: string;
+  /** Pool-specific setbacks per LAMC 12.21-A,4(k) — hardcoded from ordinance, not AI-inferred */
+  poolSetbacks?: PoolSetbacks;
+  /** Broad zone classification used for UI warnings */
+  zoneType?: ZoneType;
 }
 
 export interface LotCalculatorInput {

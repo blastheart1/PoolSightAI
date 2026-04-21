@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { geocodeAddress, fetchZimasParcel } from "@/lib/permits/zimas";
 import { ZONING_SUMMARY_PROMPT } from "@/lib/permits/prompts";
 import { parseAiJson } from "@/lib/permits/parseAiJson";
+import { classifyZone, derivePoolSetbacks } from "@/lib/permits/zoningUtils";
 import type { ZoningResult } from "@/types/permits";
 
 export const runtime = "nodejs";
@@ -106,6 +107,8 @@ export async function POST(req: Request) {
     }
 
     result.matchedAddress = geo.matchedAddress;
+    result.zoneType = classifyZone(result.zoningClassification);
+    result.poolSetbacks = derivePoolSetbacks(result.zoningClassification, result.overlays);
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     console.error("zoning-lookup error:", err);

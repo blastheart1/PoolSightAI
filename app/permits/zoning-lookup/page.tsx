@@ -7,6 +7,30 @@ import type { ZoningResult } from "@/types/permits";
 
 const BADGE = "inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500";
 const AI_BADGE = "inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700";
+const VERIFIED_BADGE = "inline-flex items-center gap-1 rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700";
+
+const NON_RESIDENTIAL_WARNINGS: Record<string, { title: string; body: string; color: string }> = {
+  commercial: {
+    title: "Commercial zone",
+    body: "Pool permits on commercial parcels are possible but typically require discretionary review. Verify applicability with LADBS before proceeding.",
+    color: "amber",
+  },
+  industrial: {
+    title: "Industrial / Manufacturing zone",
+    body: "Pool permits are rarely applicable on industrial or manufacturing parcels. This lookup may not be relevant — verify with LADBS.",
+    color: "red",
+  },
+  public_facilities: {
+    title: "Public Facilities zone",
+    body: "This parcel is designated for public use (government, schools, utilities). Pool permits for private construction are unlikely to apply here.",
+    color: "red",
+  },
+  open_space: {
+    title: "Open Space / Greenbelt zone",
+    body: "This parcel is zoned open space, greenbelt, or agricultural. Private pool construction is not a permitted use on this parcel type.",
+    color: "red",
+  },
+};
 
 export default function ZoningLookupPage() {
   const [address, setAddress] = useState("");
@@ -111,6 +135,18 @@ export default function ZoningLookupPage() {
           >
             <ResultCard title="Zoning Summary">
               <div className="space-y-5">
+                {/* Non-residential zone warning */}
+                {result.zoneType && NON_RESIDENTIAL_WARNINGS[result.zoneType] && (() => {
+                  const w = NON_RESIDENTIAL_WARNINGS[result.zoneType!]!;
+                  const isRed = w.color === "red";
+                  return (
+                    <div className={`rounded-md border px-3 py-2.5 text-xs leading-relaxed ${isRed ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+                      <p className="font-semibold">{w.title}</p>
+                      <p className="mt-0.5">{w.body}</p>
+                    </div>
+                  );
+                })()}
+
                 {/* Matched address warning */}
                 {result.matchedAddress && (
                   <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
@@ -179,6 +215,50 @@ export default function ZoningLookupPage() {
                     <span className="font-semibold">How these were determined:</span> ZIMAS returns only the zoning code ({result.zoningClassification}) and land use category — it does not include dimensional standards. These setback values are LAMC Title 22 typical defaults for the {result.zoningClassification} base zone, inferred by AI. They may be modified by Q conditions, specific plans, hillside ordinances, or overlay districts. <span className="font-semibold">Do not use for permit submission — verify with LADBS or a licensed professional.</span>
                   </p>
                 </div>
+
+                {/* Pool Setbacks — hardcoded from LAMC 12.21-A,4(k), not AI */}
+                {result.poolSetbacks && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Pool Setbacks
+                      </p>
+                      <span className={VERIFIED_BADGE}>
+                        ✓ LAMC 12.21
+                      </span>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-100">
+                          <th className="pb-2 text-left text-xs font-medium text-slate-400">Requirement</th>
+                          <th className="pb-2 text-left text-xs font-medium text-slate-400">Distance</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {[
+                          { label: "From property line", value: result.poolSetbacks.fromPropertyLine },
+                          { label: "From dwelling / structures", value: result.poolSetbacks.fromDwelling },
+                          { label: "Front yard", value: result.poolSetbacks.frontYard },
+                          { label: "Equipment pad", value: result.poolSetbacks.equipmentPad },
+                        ].map(({ label, value }) => (
+                          <tr key={label}>
+                            <td className="w-48 py-2.5 pr-4 text-xs font-medium text-slate-500">{label}</td>
+                            <td className="py-2.5 text-slate-900">{value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {result.poolSetbacks.caveats.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        {result.poolSetbacks.caveats.map((c, i) => (
+                          <p key={i} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
+                            {c}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {result.allowedUses.length > 0 && (
                   <div>
