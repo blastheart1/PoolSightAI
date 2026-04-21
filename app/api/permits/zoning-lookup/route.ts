@@ -3,7 +3,7 @@ import { geocodeAddress, fetchZimasParcel } from "@/lib/permits/zimas";
 import { ZONING_SUMMARY_PROMPT } from "@/lib/permits/prompts";
 import { parseAiJson } from "@/lib/permits/parseAiJson";
 import { classifyZone, derivePoolSetbacks } from "@/lib/permits/zoningUtils";
-import type { ZoningResult } from "@/types/permits";
+import type { ZoningResult, OwnerInfo, PermitRecord } from "@/types/permits";
 
 export const runtime = "nodejs";
 
@@ -107,8 +107,19 @@ export async function POST(req: Request) {
     }
 
     result.matchedAddress = geo.matchedAddress;
+    result.lat = geo.lat;
+    result.lon = geo.lon;
     result.zoneType = classifyZone(result.zoningClassification);
     result.poolSetbacks = derivePoolSetbacks(result.zoningClassification, result.overlays);
+
+    // Fetch owner info and permit history in parallel — failures are non-fatal
+    const [ownerInfo, permitHistory] = await Promise.allSettled([
+      fetchOwnerInfo(address),
+      fetchPermitHistory(geo.matchedAddress),
+    ]);
+    if (ownerInfo.status === "fulfilled") result.ownerInfo = ownerInfo.value;
+    if (permitHistory.status === "fulfilled") result.permitHistory = permitHistory.value;
+
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     console.error("zoning-lookup error:", err);
@@ -117,4 +128,61 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+}
+
+async function fetchOwnerInfo(address: string): Promise<OwnerInfo | undefined> {
+  const lightboxKey = process.env.LIGHTBOX_API_KEY;
+  if (!lightboxKey) return undefined;
+
+  const res = await fetch(
+    `https://api.lightboxre.com/v1/parcels/address?address=${encodeURIComponent(address)}`,
+    {
+      headers: { "x-api-key": lightboxKey },
+      cache: "no-store",
+    }
+  );
+  if (!res.ok) return undefined;
+
+  const json = await res.json();
+  const parcel = json?.parcels?.[0] ?? json?.data?.[0];
+  if (!parcel) return undefined;
+
+  return {
+    ownerName: parcel.ownerName ?? parcel.owner?.name,
+    mailingAddress: parcel.ownerMailingAddress ?? parcel.owner?.mailingAddress,
+    ownerOccupied: parcel.ownerOccupied,
+  };
+}
+
+async function fetchPermitHistory(matchedAddress: string): Promise<PermitRecord[]> {
+  // Parse street number and name from matched address (e.g. "123 MAIN ST, LOS ANGELES, CA 90012")
+  const parts = matchedAddress.split(",")[0].trim().split(" ");
+  if (parts.length < 2) return [];
+
+  const streetNum = parts[0];
+  const streetName = parts.slice(1).join(" ");
+
+  const params = new URLSearchParams({
+    $where: `address_start='${streetNum}' AND street_name='${streetName}'`,
+    $order: "issue_date DESC",
+    $limit: "10",
+  });
+
+  const res = await fetch(
+    `https://data.lacity.org/resource/xnhu-aczu.json?${params}`,
+    { cache: "no-store" }
+  );
+  if (!res.ok) return [];
+
+  const json: Record<string, string>[] = await res.json();
+  if (!Array.isArray(json)) return [];
+
+  return json.map((p) => ({
+    permitNumber: p.permit_nbr ?? p.permit_number ?? "",
+    permitType: p.permit_type ?? "",
+    status: p.status ?? "",
+    issueDate: p.issue_date?.split("T")[0],
+    description: p.work_description ?? p.description,
+    address: `${p.address_start ?? ""} ${p.street_name ?? ""}`.trim(),
+  }));
 }

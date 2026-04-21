@@ -46,6 +46,21 @@ export interface PoolSetbacks {
   caveats: string[];
 }
 
+export interface OwnerInfo {
+  ownerName?: string;
+  mailingAddress?: string;
+  ownerOccupied?: boolean;
+}
+
+export interface PermitRecord {
+  permitNumber: string;
+  permitType: string;
+  status: string;
+  issueDate?: string;
+  description?: string;
+  address: string;
+}
+
 export interface ZoningResult {
   parcelNumber: string;
   zoningClassification: string;
@@ -62,6 +77,13 @@ export interface ZoningResult {
   poolSetbacks?: PoolSetbacks;
   /** Broad zone classification used for UI warnings */
   zoneType?: ZoneType;
+  /** Geocoded coordinates for map display */
+  lat?: number;
+  lon?: number;
+  /** Owner info from Lightbox parcel API */
+  ownerInfo?: OwnerInfo;
+  /** Recent permit history from LA City SODA API */
+  permitHistory?: PermitRecord[];
 }
 
 export interface LotCalculatorInput {

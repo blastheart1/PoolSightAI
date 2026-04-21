@@ -1,14 +1,75 @@
 "use client";
 
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ResultCard from "@/components/permits/ResultCard";
 import type { ZoningResult } from "@/types/permits";
 
-const BADGE = "inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500";
-const AI_BADGE = "inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700";
-const VERIFIED_BADGE = "inline-flex items-center gap-1 rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700";
+const ParcelMap = lazy(() => import("@/components/permits/ParcelMap"));
 
+// ── Badge variants ──────────────────────────────────────────────────────────
+// Each badge is a small circle with an icon; tooltip appears on hover.
+
+type BadgeVariant = "ai" | "verified" | "info" | "source";
+
+const BADGE_STYLES: Record<BadgeVariant, string> = {
+  ai:       "border-amber-300 bg-amber-50 text-amber-600",
+  verified: "border-green-300 bg-green-50 text-green-600",
+  info:     "border-slate-300 bg-slate-100 text-slate-500",
+  source:   "border-blue-200 bg-blue-50 text-blue-500",
+};
+
+const BADGE_ICONS: Record<BadgeVariant, React.ReactNode> = {
+  ai: (
+    // Sparkle / wand
+    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor" aria-hidden>
+      <path d="M8 1l1.2 3.8L13 6l-3.8 1.2L8 11l-1.2-3.8L3 6l3.8-1.2z"/>
+      <path d="M13 10l.6 1.9L15.5 13l-1.9.6L13 15.5l-.6-1.9L10.5 13l1.9-.6z" opacity=".6"/>
+    </svg>
+  ),
+  verified: (
+    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="3 8.5 6.5 12 13 5"/>
+    </svg>
+  ),
+  info: (
+    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor" aria-hidden>
+      <circle cx="8" cy="5" r="1.1"/>
+      <rect x="7.1" y="7.2" width="1.8" height="5" rx=".9"/>
+    </svg>
+  ),
+  source: (
+    // Database stack
+    <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor" aria-hidden>
+      <ellipse cx="8" cy="4" rx="5" ry="1.8"/>
+      <path d="M3 4v3c0 1 2.2 1.8 5 1.8s5-.8 5-1.8V4"/>
+      <path d="M3 7v3c0 1 2.2 1.8 5 1.8s5-.8 5-1.8V7" opacity=".6"/>
+    </svg>
+  ),
+};
+
+function IconBadge({ variant, tooltip }: { variant: BadgeVariant; tooltip: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <span
+        className={`inline-flex h-5 w-5 items-center justify-center rounded-full border ${BADGE_STYLES[variant]}`}
+        aria-label={tooltip}
+      >
+        {BADGE_ICONS[variant]}
+      </span>
+      {/* Tooltip */}
+      <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded bg-slate-800 px-2 py-1 text-xs font-normal text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+        {tooltip}
+        <span className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+      </span>
+    </span>
+  );
+}
+
+// ── Phase badge (non-interactive) ────────────────────────────────────────────
+const PHASE_BADGE = "inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500";
+
+// ── Non-residential warnings ─────────────────────────────────────────────────
 const NON_RESIDENTIAL_WARNINGS: Record<string, { title: string; body: string; color: string }> = {
   commercial: {
     title: "Commercial zone",
@@ -71,7 +132,7 @@ export default function ZoningLookupPage() {
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
             LA Zoning Lookup
           </h1>
-          <span className={BADGE}>Phase 1</span>
+          <span className={PHASE_BADGE}>Phase 1</span>
         </div>
         <p className="mb-4 text-sm text-slate-500">
           Enter an LA address to pull zoning, setbacks, overlays, and lot coverage from ZIMAS.
@@ -158,7 +219,51 @@ export default function ZoningLookupPage() {
                   </div>
                 )}
 
-                {/* Key fields — single column table for long values */}
+                {/* Map */}
+                {result.lat && result.lon && (
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Location
+                    </p>
+                    <Suspense fallback={<div className="h-60 rounded-md border border-slate-200 bg-slate-50 animate-pulse" />}>
+                      <ParcelMap lat={result.lat} lon={result.lon} address={result.matchedAddress} />
+                    </Suspense>
+                  </div>
+                )}
+
+                {/* Owner Info */}
+                {result.ownerInfo && (result.ownerInfo.ownerName || result.ownerInfo.mailingAddress) && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Owner Info</p>
+                      <IconBadge variant="source" tooltip="Source: Lightbox RE parcel API" />
+                    </div>
+                    <table className="w-full text-sm">
+                      <tbody className="divide-y divide-slate-100">
+                        {result.ownerInfo.ownerName && (
+                          <tr>
+                            <td className="w-40 py-2.5 pr-4 text-xs font-medium text-slate-400">Owner</td>
+                            <td className="py-2.5 text-slate-900">{result.ownerInfo.ownerName}</td>
+                          </tr>
+                        )}
+                        {result.ownerInfo.mailingAddress && (
+                          <tr>
+                            <td className="w-40 py-2.5 pr-4 text-xs font-medium text-slate-400">Mailing</td>
+                            <td className="py-2.5 text-slate-900">{result.ownerInfo.mailingAddress}</td>
+                          </tr>
+                        )}
+                        {result.ownerInfo.ownerOccupied !== undefined && (
+                          <tr>
+                            <td className="w-40 py-2.5 pr-4 text-xs font-medium text-slate-400">Owner-Occupied</td>
+                            <td className="py-2.5 text-slate-900">{result.ownerInfo.ownerOccupied ? "Yes" : "No"}</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Key fields */}
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-100">
                     {[
@@ -170,8 +275,10 @@ export default function ZoningLookupPage() {
                     ].map(({ label, value, ai }) => (
                       <tr key={label}>
                         <td className="w-40 shrink-0 py-2.5 pr-4 align-top text-xs font-medium text-slate-400">
-                          <span>{label}</span>
-                          {ai && <span className={`ml-1.5 ${AI_BADGE}`}>AI est.</span>}
+                          <span className="inline-flex items-center gap-1.5">
+                            {label}
+                            {ai && <IconBadge variant="ai" tooltip="AI-estimated from LAMC Title 22 defaults — not from authoritative records" />}
+                          </span>
                         </td>
                         <td className="py-2.5 text-slate-900">{value || "—"}</td>
                       </tr>
@@ -185,9 +292,7 @@ export default function ZoningLookupPage() {
                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                       Setbacks
                     </p>
-                    <span className={AI_BADGE}>
-                      ✦ AI Estimated
-                    </span>
+                    <IconBadge variant="ai" tooltip="AI-estimated from LAMC Title 22 defaults — may be modified by Q conditions, specific plans, or BHO" />
                   </div>
                   <table className="w-full text-sm">
                     <thead>
@@ -210,22 +315,19 @@ export default function ZoningLookupPage() {
                       ))}
                     </tbody>
                   </table>
-                  {/* Disclaimer */}
                   <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
                     <span className="font-semibold">How these were determined:</span> ZIMAS returns only the zoning code ({result.zoningClassification}) and land use category — it does not include dimensional standards. These setback values are LAMC Title 22 typical defaults for the {result.zoningClassification} base zone, inferred by AI. They may be modified by Q conditions, specific plans, hillside ordinances, or overlay districts. <span className="font-semibold">Do not use for permit submission — verify with LADBS or a licensed professional.</span>
                   </p>
                 </div>
 
-                {/* Pool Setbacks — hardcoded from LAMC 12.21-A,4(k), not AI */}
+                {/* Pool Setbacks — hardcoded from LAMC 12.21-A,4(k) */}
                 {result.poolSetbacks && (
                   <div>
                     <div className="mb-2 flex items-center gap-2">
                       <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                         Pool Setbacks
                       </p>
-                      <span className={VERIFIED_BADGE}>
-                        ✓ LAMC 12.21
-                      </span>
+                      <IconBadge variant="verified" tooltip="Hardcoded from LAMC 12.21-A,4(k) — not AI-inferred" />
                     </div>
                     <table className="w-full text-sm">
                       <thead>
@@ -288,6 +390,37 @@ export default function ZoningLookupPage() {
                     </div>
                   </div>
                 )}
+
+                {/* Permit History */}
+                {result.permitHistory && result.permitHistory.length > 0 && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Permit History</p>
+                      <IconBadge variant="info" tooltip="Source: LA City open data (SODA) — building permits issued by LADBS" />
+                    </div>
+                    <div className="space-y-2">
+                      {result.permitHistory.map((p, i) => (
+                        <div key={i} className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-xs">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="font-medium text-slate-700">{p.permitType || "Permit"}</span>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                              p.status?.toLowerCase().includes("issued") || p.status?.toLowerCase().includes("final")
+                                ? "bg-green-100 text-green-700"
+                                : p.status?.toLowerCase().includes("expired") || p.status?.toLowerCase().includes("void")
+                                ? "bg-red-100 text-red-700"
+                                : "bg-slate-200 text-slate-600"
+                            }`}>{p.status}</span>
+                          </div>
+                          {p.description && <p className="mt-0.5 text-slate-500">{p.description}</p>}
+                          <p className="mt-1 text-slate-400">
+                            {p.permitNumber && <span className="mr-3">#{p.permitNumber}</span>}
+                            {p.issueDate && <span>{p.issueDate}</span>}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </ResultCard>
           </motion.div>
@@ -296,13 +429,3 @@ export default function ZoningLookupPage() {
     </div>
   );
 }
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="mt-0.5 text-sm font-medium text-slate-900">{value || "—"}</p>
-    </div>
-  );
-}
-
