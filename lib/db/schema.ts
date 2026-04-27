@@ -58,8 +58,8 @@ export const projectContractItems = pgTable(
     qty: decimal("qty", { precision: 15, scale: 2 }),
     rate: decimal("rate", { precision: 15, scale: 2 }),
     amount: decimal("amount", { precision: 15, scale: 2 }),
-    mainCategory: varchar("main_category", { length: 255 }),
-    subCategory: varchar("sub_category", { length: 255 }),
+    mainCategory: text("main_category"),
+    subCategory: text("sub_category"),
     progressOverallPct: decimal("progress_overall_pct", {
       precision: 10,
       scale: 4,

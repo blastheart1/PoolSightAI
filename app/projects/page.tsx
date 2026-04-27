@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 
@@ -299,12 +299,9 @@ function DuplicateAlert({ duplicate, addendumCount, onAppend, onCreateNew }: Dup
 
 // ─── AddProjectDialog ─────────────────────────────────────────────────────────
 
-type DialogStep = "name" | "parse";
 type ContractSource = "file" | "url";
 
 const DIALOG_INITIAL = {
-  step: "name" as DialogStep,
-  projectName: "",
   source: "file" as ContractSource,
   parseFile: null as File | null,
   parseUrl: "",
@@ -328,14 +325,12 @@ interface AddProjectDialogProps {
 
 function AddProjectDialog({ open, projects, onClose, onSuccess }: AddProjectDialogProps) {
   const [state, setState] = useState(DIALOG_INITIAL);
-  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const patch = (partial: Partial<typeof DIALOG_INITIAL>) =>
     setState((prev) => ({ ...prev, ...partial }));
 
   useEffect(() => {
     if (!open) return;
-    nameInputRef.current?.focus();
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -431,7 +426,7 @@ function AddProjectDialog({ open, projects, onClose, onSuccess }: AddProjectDial
   };
 
   const saveProject = async () => {
-    const name = state.projectName.trim() || "New Project";
+    const name = "New Project";
     patch({ saving: true, parseError: "" });
     try {
       let targetId: string;
@@ -478,8 +473,6 @@ function AddProjectDialog({ open, projects, onClose, onSuccess }: AddProjectDial
     (state.source === "file" && !!state.parseFile) ||
     (state.source === "url" && !!state.parseUrl.trim());
 
-  const isParseStep = state.step === "parse";
-  const stepLabel = isParseStep ? "Step 2 of 2" : "Step 1 of 2";
   const saveLabel = state.existingProjectId ? "Update project" : "Create project";
 
   return (
@@ -496,7 +489,6 @@ function AddProjectDialog({ open, projects, onClose, onSuccess }: AddProjectDial
             <h2 id="add-project-title" className="text-lg font-semibold text-slate-950">
               Add project
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">{stepLabel}</p>
           </div>
           <SquareButton ariaLabel="Close dialog" onClick={handleClose}>
             <IconClose />
@@ -505,26 +497,7 @@ function AddProjectDialog({ open, projects, onClose, onSuccess }: AddProjectDial
 
         {/* Body */}
         <div className="px-6 py-6">
-          {/* Step 1 — name */}
-          {state.step === "name" && (
-            <div>
-              <FieldLabel htmlFor="project-name">Project name</FieldLabel>
-              <input
-                ref={nameInputRef}
-                id="project-name"
-                type="text"
-                value={state.projectName}
-                onChange={(e) => patch({ projectName: e.target.value })}
-                onKeyDown={(e) => { if (e.key === "Enter" && state.projectName.trim()) patch({ step: "parse" }); }}
-                placeholder="e.g. Smith Residence"
-                className={`mt-2 ${INPUT_CLS}`}
-              />
-            </div>
-          )}
-
-          {/* Step 2 — parse */}
-          {state.step === "parse" && (
-            <div className="space-y-5">
+          <div className="space-y-5">
               {/* Source toggle */}
               <div>
                 <p className="mb-2 text-sm font-semibold text-slate-900">Contract source</p>
@@ -579,7 +552,6 @@ function AddProjectDialog({ open, projects, onClose, onSuccess }: AddProjectDial
                       onAppend={() =>
                         patch({
                           existingProjectId: state.duplicateMatch!.id,
-                          projectName: state.duplicateMatch!.name,
                           duplicateMatch: null,
                         })
                       }
@@ -656,37 +628,24 @@ function AddProjectDialog({ open, projects, onClose, onSuccess }: AddProjectDial
                 </p>
               )}
             </div>
-          )}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
-          {state.step === "name" && (
-            <>
-              <Button variant="secondary" onClick={handleClose}>Cancel</Button>
-              <Button disabled={!state.projectName.trim()} onClick={() => patch({ step: "parse" })}>
-                Continue
-              </Button>
-            </>
-          )}
-          {state.step === "parse" && (
-            <>
-              <Button variant="secondary" onClick={() => patch({ step: "name" })}>Back</Button>
-              <Button
-                variant="secondary"
-                disabled={!canParse || state.parsing}
-                onClick={runParse}
-              >
-                {state.parsing ? "Parsing…" : "Parse contract"}
-              </Button>
-              <Button
-                disabled={!state.parseResult || state.saving}
-                onClick={saveProject}
-              >
-                {state.saving ? "Saving…" : saveLabel}
-              </Button>
-            </>
-          )}
+          <Button variant="secondary" onClick={handleClose}>Cancel</Button>
+          <Button
+            variant="secondary"
+            disabled={!canParse || state.parsing}
+            onClick={runParse}
+          >
+            {state.parsing ? "Parsing…" : "Parse contract"}
+          </Button>
+          <Button
+            disabled={!state.parseResult || state.saving}
+            onClick={saveProject}
+          >
+            {state.saving ? "Saving…" : saveLabel}
+          </Button>
         </div>
       </div>
     </div>

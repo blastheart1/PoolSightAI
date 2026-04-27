@@ -220,7 +220,8 @@ export function extractOrderItems(html: string): OrderItem[] {
         (firstCell.html() || "").includes("font-weight: bold") ||
         firstCell.find("strong").length > 0;
       const isMainCategoryNew =
-        firstStyle.includes("border-top:solid 1px #666") &&
+        (firstStyle.includes("border-top:solid 1px #666") ||
+          firstStyle.includes("border-top: solid 1px #666")) &&
         /^\d{4}\s+Calimingo/.test(firstPlain);
       const isMainCategory = isMainCategoryOld || isMainCategoryNew;
 
