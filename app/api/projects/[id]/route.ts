@@ -7,13 +7,9 @@ import {
   projectTrelloLinks,
 } from "../../../../lib/db/schema";
 import { eq } from "drizzle-orm";
+import { toDec } from "../../../../lib/db/utils";
 
 export const runtime = "nodejs";
-
-function toDec(s: number | string | null | undefined): string | null {
-  if (s == null || s === "") return null;
-  return String(s);
-}
 
 export async function GET(
   _request: NextRequest,
@@ -31,27 +27,16 @@ export async function GET(
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
-    const contractItems = await db
-      .select()
-      .from(projectContractItems)
-      .where(eq(projectContractItems.projectId, id))
-      .orderBy(projectContractItems.rowIndex);
-    const selectedRows = await db
-      .select({ contractItemId: projectSelectedItems.contractItemId })
-      .from(projectSelectedItems)
-      .where(eq(projectSelectedItems.projectId, id));
-    const selectedLineItemIds = selectedRows.map((r) => r.contractItemId);
-
-    const trelloLinkedLists = await db
-      .select()
-      .from(projectTrelloLinks)
-      .where(eq(projectTrelloLinks.projectId, id))
-      .orderBy(projectTrelloLinks.createdAt);
+    const [contractItems, selectedRows, trelloLinkedLists] = await Promise.all([
+      db.select().from(projectContractItems).where(eq(projectContractItems.projectId, id)).orderBy(projectContractItems.rowIndex),
+      db.select({ contractItemId: projectSelectedItems.contractItemId }).from(projectSelectedItems).where(eq(projectSelectedItems.projectId, id)),
+      db.select().from(projectTrelloLinks).where(eq(projectTrelloLinks.projectId, id)).orderBy(projectTrelloLinks.createdAt),
+    ]);
 
     return NextResponse.json({
       ...project,
       contractItems,
-      selectedLineItemIds,
+      selectedLineItemIds: selectedRows.map((r) => r.contractItemId),
       trelloLinkedLists,
     });
   } catch (err) {
@@ -115,34 +100,76 @@ export async function PATCH(
           );
         }
       }
+
+      // Snapshot progress fields from existing items keyed by rowIndex.
+      // This preserves progress data when incoming items come from a fresh
+      // inline-table parse that has no progress context (e.g. manual re-parse
+      // of a base-contract EML). Items returned by runLinksFlow already carry
+      // the merged progress values, so they take precedence via the null-check below.
+      type ProgressSnapshot = {
+        progressOverallPct: string | null;
+        completedAmount: string | null;
+        previouslyInvoicedPct: string | null;
+        previouslyInvoicedAmount: string | null;
+        newProgressPct: string | null;
+        thisBill: string | null;
+      };
+      const existingRows = await db
+        .select({
+          rowIndex:               projectContractItems.rowIndex,
+          progressOverallPct:     projectContractItems.progressOverallPct,
+          completedAmount:        projectContractItems.completedAmount,
+          previouslyInvoicedPct:  projectContractItems.previouslyInvoicedPct,
+          previouslyInvoicedAmount: projectContractItems.previouslyInvoicedAmount,
+          newProgressPct:         projectContractItems.newProgressPct,
+          thisBill:               projectContractItems.thisBill,
+        })
+        .from(projectContractItems)
+        .where(eq(projectContractItems.projectId, id));
+      const progressByIndex = new Map<number, ProgressSnapshot>(
+        existingRows.map((r) => [r.rowIndex, {
+          progressOverallPct:     r.progressOverallPct,
+          completedAmount:        r.completedAmount,
+          previouslyInvoicedPct:  r.previouslyInvoicedPct,
+          previouslyInvoicedAmount: r.previouslyInvoicedAmount,
+          newProgressPct:         r.newProgressPct,
+          thisBill:               r.thisBill,
+        }])
+      );
+
       await db.delete(projectSelectedItems).where(eq(projectSelectedItems.projectId, id));
       await db.delete(projectContractItems).where(eq(projectContractItems.projectId, id));
-      for (let i = 0; i < newItems.length; i++) {
-        const it = newItems[i];
-        await db.insert(projectContractItems).values({
-          projectId: id,
-          rowIndex: i,
-          itemType: it.type ?? "item",
-          productService: it.productService ?? "",
-          qty: it.qty != null ? toDec(it.qty) : null,
-          rate: it.rate != null ? toDec(it.rate) : null,
-          amount: it.amount != null ? toDec(it.amount) : null,
-          mainCategory: it.mainCategory ?? null,
-          subCategory: it.subCategory ?? null,
-          progressOverallPct: it.progressOverallPct != null ? toDec(it.progressOverallPct) : null,
-          completedAmount: it.completedAmount != null ? toDec(it.completedAmount) : null,
-          previouslyInvoicedPct: it.previouslyInvoicedPct != null ? toDec(it.previouslyInvoicedPct) : null,
-          previouslyInvoicedAmount: it.previouslyInvoicedAmount != null ? toDec(it.previouslyInvoicedAmount) : null,
-          newProgressPct: it.newProgressPct != null ? toDec(it.newProgressPct) : null,
-          thisBill: it.thisBill != null ? toDec(it.thisBill) : null,
-          optionalPackageNumber:
-            typeof it.optionalPackageNumber === "number" ? it.optionalPackageNumber : null,
-          columnBLabel: it.columnBLabel ?? null,
-          isAddendumHeader: it.isAddendumHeader === true,
-          addendumNumber: it.addendumNumber ?? null,
-          addendumUrlId: it.addendumUrlId ?? null,
-          isBlankRow: it.isBlankRow === true,
+      if (newItems.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rows = newItems.map((it: any, i: number) => {
+          const snap = progressByIndex.get(i);
+          return {
+            projectId: id,
+            rowIndex: i,
+            itemType: it.type ?? "item",
+            productService: it.productService ?? "",
+            qty: it.qty != null ? toDec(it.qty) : null,
+            rate: it.rate != null ? toDec(it.rate) : null,
+            amount: it.amount != null ? toDec(it.amount) : null,
+            mainCategory: it.mainCategory ?? null,
+            subCategory: it.subCategory ?? null,
+            // Prefer progress from incoming item; fall back to snapshot from same position.
+            progressOverallPct:       it.progressOverallPct != null       ? toDec(it.progressOverallPct)       : (snap?.progressOverallPct       ?? null),
+            completedAmount:          it.completedAmount != null           ? toDec(it.completedAmount)          : (snap?.completedAmount          ?? null),
+            previouslyInvoicedPct:    it.previouslyInvoicedPct != null     ? toDec(it.previouslyInvoicedPct)   : (snap?.previouslyInvoicedPct    ?? null),
+            previouslyInvoicedAmount: it.previouslyInvoicedAmount != null  ? toDec(it.previouslyInvoicedAmount): (snap?.previouslyInvoicedAmount  ?? null),
+            newProgressPct:           it.newProgressPct != null            ? toDec(it.newProgressPct)           : (snap?.newProgressPct           ?? null),
+            thisBill:                 it.thisBill != null                  ? toDec(it.thisBill)                 : (snap?.thisBill                 ?? null),
+            optionalPackageNumber:
+              typeof it.optionalPackageNumber === "number" ? it.optionalPackageNumber : null,
+            columnBLabel: it.columnBLabel ?? null,
+            isAddendumHeader: it.isAddendumHeader === true,
+            addendumNumber: it.addendumNumber ?? null,
+            addendumUrlId: it.addendumUrlId ?? null,
+            isBlankRow: it.isBlankRow === true,
+          };
         });
+        await db.insert(projectContractItems).values(rows);
       }
       (updates as { parsedAt?: Date }).parsedAt = new Date();
     }
@@ -163,21 +190,12 @@ export async function PATCH(
       }
     }
 
-    const [updated] = await db.select().from(projects).where(eq(projects.id, id));
-    const contractItems = await db
-      .select()
-      .from(projectContractItems)
-      .where(eq(projectContractItems.projectId, id))
-      .orderBy(projectContractItems.rowIndex);
-    const selectedRows = await db
-      .select({ contractItemId: projectSelectedItems.contractItemId })
-      .from(projectSelectedItems)
-      .where(eq(projectSelectedItems.projectId, id));
-    const trelloLinkedLists = await db
-      .select()
-      .from(projectTrelloLinks)
-      .where(eq(projectTrelloLinks.projectId, id))
-      .orderBy(projectTrelloLinks.createdAt);
+    const [[updated], contractItems, selectedRows, trelloLinkedLists] = await Promise.all([
+      db.select().from(projects).where(eq(projects.id, id)),
+      db.select().from(projectContractItems).where(eq(projectContractItems.projectId, id)).orderBy(projectContractItems.rowIndex),
+      db.select({ contractItemId: projectSelectedItems.contractItemId }).from(projectSelectedItems).where(eq(projectSelectedItems.projectId, id)),
+      db.select().from(projectTrelloLinks).where(eq(projectTrelloLinks.projectId, id)).orderBy(projectTrelloLinks.createdAt),
+    ]);
 
     return NextResponse.json({
       ...updated,
