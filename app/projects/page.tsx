@@ -453,6 +453,9 @@ function AddProjectDialog({ open, projects, onClose, onSuccess }: AddProjectDial
           }),
         });
         const data = await res.json();
+        if (res.status === 409) {
+          throw new Error(`This contract already exists as "${data.existingProjectName}". Open that project to append addendums.`);
+        }
         if (!res.ok) throw new Error(data.error ?? "Could not create the project.");
         targetId = data.id;
       }

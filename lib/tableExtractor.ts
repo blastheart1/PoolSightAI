@@ -190,8 +190,8 @@ export function extractOrderItems(html: string): OrderItem[] {
     const secondStyle = secondCell.attr("style") || "";
     const isSubCategoryByStyle =
       (cleanText(firstCell.text()) === "" || !cleanText(firstCell.text()).trim()) &&
-      (secondStyle.includes("border-top:solid 1px #bbb") ||
-        secondStyle.includes("border-top:solid 1px #BBB")) &&
+      (secondStyle.toLowerCase().includes("border-top:solid 1px #bbb") ||
+        secondStyle.toLowerCase().includes("border-top: solid 1px #bbb")) &&
       secondCell.find("strong").length > 0 &&
       cells.length >= 2;
 
@@ -251,18 +251,6 @@ export function extractOrderItems(html: string): OrderItem[] {
             rate: "",
             amount: "",
           });
-          const amount = parseFloat(amountText.replace(/[$,]/g, "")) || 0;
-          if (amount > 0) {
-            const qty = extractQuantity(qtyText);
-            items.push({
-              type: "item",
-              productService: fullName.replace(/:\s*$/, ""),
-              qty,
-              rate: qty > 0 ? amount / qty : amount,
-              amount,
-              mainCategory: fullName,
-            });
-          }
         }
         return;
       }

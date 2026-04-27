@@ -44,6 +44,18 @@ export async function POST(request: NextRequest) {
     const autoName = [street, client].filter(Boolean).join(" | ");
     const name = autoName || body.name || "New Project";
 
+    // Reject if a project with the same orderNo already exists
+    const orderNo = location.orderNo ? String(location.orderNo).trim() : null;
+    if (orderNo) {
+      const [existing] = await db.select().from(projects).where(eq(projects.orderNo, orderNo));
+      if (existing) {
+        return NextResponse.json(
+          { error: "A project with this order number already exists", existingProjectId: existing.id, existingProjectName: existing.name },
+          { status: 409 }
+        );
+      }
+    }
+
     const [project] = await db
       .insert(projects)
       .values({
