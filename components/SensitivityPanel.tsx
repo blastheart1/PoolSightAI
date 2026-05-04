@@ -1,10 +1,13 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { decodeAudioFile, silenceSegments, encodeAudioBuffer } from "@/lib/audio/silenceSegments";
+import { decodeAudioFile, cutSegments, encodeAudioBuffer } from "@/lib/audio/silenceSegments";
 import type { FlaggedSegment } from "@/lib/sensitivity/types";
+import type { TimeRange } from "@/lib/audio/silenceSegments";
+import { invertRanges } from "@/lib/video/invertRanges";
+import { cutVideoClientSide } from "@/lib/video/cutVideoClient";
 
-// ─── Design tokens (mirrors app/projects/page.tsx) ───────────────────────────
+// ─── Design tokens ────────────────────────────────────────────────────────────
 
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2";
@@ -39,24 +42,63 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+/**
+ * Merges flagged segments that are adjacent or overlapping into single items.
+ * Keeps the category/reason of the first segment in each merged group.
+ */
+function mergeAdjacentSegments(segments: FlaggedSegment[]): FlaggedSegment[] {
+  if (segments.length === 0) return segments;
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const merged: FlaggedSegment[] = [{ ...sorted[0] }];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    const curr = sorted[i];
+    if (curr.start <= last.end) {
+      merged[merged.length - 1] = {
+        ...last,
+        end: Math.max(last.end, curr.end),
+        text: last.text + " " + curr.text,
+      };
+    } else {
+      merged.push({ ...curr });
+    }
+  }
+  return merged;
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface SensitivityPanelProps {
   flaggedSegments: FlaggedSegment[];
-  audioFile: File | null;
+  audioFile?: File | null;
+  videoFile?: File | null;
+  projectId?: string;
+  videoDuration?: number;
+  mediaType?: "audio" | "video";
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPanelProps) {
+export function SensitivityPanel({
+  flaggedSegments,
+  audioFile,
+  videoFile,
+  projectId: _projectId,
+  videoDuration,
+  mediaType = "audio",
+}: SensitivityPanelProps) {
+  // Merge adjacent/overlapping segments so contiguous flags appear as one item
+  const displaySegments = mergeAdjacentSegments(flaggedSegments);
+
   const [checked, setChecked] = useState<Set<number>>(
-    () => new Set(flaggedSegments.map((s) => s.segmentId))
+    () => new Set(displaySegments.map((s) => s.segmentId))
   );
   const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
   const [exportError, setExportError] = useState("");
 
   const selectedCount = checked.size;
-  const allChecked = checked.size === flaggedSegments.length;
+  const allChecked = checked.size === displaySegments.length;
   const noneChecked = checked.size === 0;
 
   const toggleSegment = useCallback((id: number) => {
@@ -72,45 +114,85 @@ export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPane
     setChecked(
       allChecked
         ? new Set()
-        : new Set(flaggedSegments.map((s) => s.segmentId))
+        : new Set(displaySegments.map((s) => s.segmentId))
     );
-  }, [allChecked, flaggedSegments]);
+  }, [allChecked, displaySegments]);
+
+  const handleAudioExport = useCallback(async () => {
+    if (!audioFile || noneChecked) return;
+
+    const audioBuffer = await decodeAudioFile(audioFile);
+    const totalDuration = audioBuffer.duration;
+
+    const removeRanges: TimeRange[] = displaySegments
+      .filter((s) => checked.has(s.segmentId))
+      .map(({ start, end }) => ({ start, end }));
+
+    const keepRanges = invertRanges(totalDuration, removeRanges);
+    const cut = cutSegments(audioBuffer, keepRanges);
+    const { blob, ext } = await encodeAudioBuffer(cut);
+
+    const baseName = audioFile.name.replace(/\.[^/.]+$/, "");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${baseName}_clean.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [audioFile, displaySegments, checked, noneChecked]);
+
+  const handleVideoExport = useCallback(async () => {
+    if (!videoFile || noneChecked) return;
+    if (videoDuration === undefined) {
+      throw new Error("Video duration not loaded yet. Wait for the preview to finish loading, then try again.");
+    }
+
+    const removeRanges: TimeRange[] = displaySegments
+      .filter((s) => checked.has(s.segmentId))
+      .map(({ start, end }) => ({ start, end }));
+
+    const keepRanges = invertRanges(videoDuration, removeRanges);
+
+    // Client-side export — no server upload, avoids payload limits
+    setExportProgress(0);
+    const blob = await cutVideoClientSide(videoFile, keepRanges, setExportProgress);
+    const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+    const baseName = videoFile.name.replace(/\.[^/.]+$/, "");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${baseName}_clean.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [videoFile, displaySegments, checked, noneChecked, videoDuration]);
 
   const handleExport = useCallback(async () => {
-    if (!audioFile || noneChecked) return;
     setExporting(true);
     setExportError("");
-
     try {
-      const audioBuffer = await decodeAudioFile(audioFile);
-
-      const rangesToSilence = flaggedSegments
-        .filter((s) => checked.has(s.segmentId))
-        .map(({ start, end }) => ({ start, end }));
-
-      const silenced = silenceSegments(audioBuffer, rangesToSilence);
-      const { blob, ext } = await encodeAudioBuffer(silenced);
-
-      const baseName = audioFile.name.replace(/\.[^/.]+$/, "");
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${baseName}_clean.${ext}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      if (mediaType === "video") {
+        await handleVideoExport();
+      } else {
+        await handleAudioExport();
+      }
+    setExportProgress(100);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Export failed";
       setExportError(
         msg.toLowerCase().includes("decode") || msg.toLowerCase().includes("not supported")
           ? "Audio export is not supported for this file format in your browser. Use the timestamps above to manually trim the recording."
-          : "Export failed. Please try again."
+          : msg
       );
     } finally {
       setExporting(false);
+      setExportProgress(0);
     }
-  }, [audioFile, flaggedSegments, checked, noneChecked]);
+  }, [mediaType, handleAudioExport, handleVideoExport]);
 
-  if (flaggedSegments.length === 0) {
+  const hasSourceFile = mediaType === "video" ? !!videoFile : !!audioFile;
+  const videoDurationMissing = mediaType === "video" && videoDuration === undefined && !!videoFile;
+
+  if (displaySegments.length === 0) {
     return (
       <div
         role="status"
@@ -132,17 +214,17 @@ export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPane
         className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3"
       >
         <p className="text-sm font-semibold text-amber-900">
-          {flaggedSegments.length} segment{flaggedSegments.length !== 1 ? "s" : ""} flagged for review
+          {displaySegments.length} segment{displaySegments.length !== 1 ? "s" : ""} flagged for review
         </p>
         <p className="mt-0.5 text-xs text-amber-800">
-          Checked segments will be silenced in the exported audio. Uncheck any you are comfortable leaving in.
+          Checked segments will be cut from the exported {mediaType}. Uncheck any you are comfortable leaving in.
         </p>
       </div>
 
       {/* Select all toggle */}
       <div className="flex items-center justify-between px-1">
         <p className="text-xs text-slate-500">
-          {selectedCount} of {flaggedSegments.length} selected for removal
+          {selectedCount} of {displaySegments.length} selected for removal
         </p>
         <button
           type="button"
@@ -155,7 +237,7 @@ export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPane
 
       {/* Flagged segment list */}
       <ul className="space-y-2" aria-label="Flagged segments">
-        {flaggedSegments.map((seg) => {
+        {displaySegments.map((seg) => {
           const isChecked = checked.has(seg.segmentId);
           const checkboxId = `seg-${seg.segmentId}`;
 
@@ -170,7 +252,6 @@ export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPane
               ].join(" ")}
             >
               <div className="flex items-start gap-3">
-                {/* Checkbox */}
                 <input
                   id={checkboxId}
                   type="checkbox"
@@ -184,7 +265,6 @@ export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPane
                 />
 
                 <div className="min-w-0 flex-1 space-y-1">
-                  {/* Timestamp + category */}
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-700">
                       {formatTime(seg.start)} – {formatTime(seg.end)}
@@ -196,7 +276,6 @@ export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPane
                     </span>
                   </div>
 
-                  {/* Segment text */}
                   <label
                     htmlFor={checkboxId}
                     className="block cursor-pointer text-sm text-slate-900"
@@ -204,7 +283,6 @@ export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPane
                     &ldquo;{seg.text}&rdquo;
                   </label>
 
-                  {/* Reason */}
                   <p className="text-xs text-slate-500">{seg.reason}</p>
                 </div>
               </div>
@@ -228,7 +306,7 @@ export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPane
       <button
         type="button"
         onClick={handleExport}
-        disabled={exporting || noneChecked || !audioFile}
+        disabled={exporting || noneChecked || !hasSourceFile || videoDurationMissing}
         className={[
           "inline-flex w-full items-center justify-center rounded-full border transition",
           "h-10 px-4 text-sm font-semibold",
@@ -238,17 +316,31 @@ export function SensitivityPanel({ flaggedSegments, audioFile }: SensitivityPane
         ].join(" ")}
       >
         {exporting
-          ? "Processing audio…"
+          ? mediaType === "video"
+            ? `Processing video… ${exportProgress < 100 ? Math.round(exportProgress) + "%" : "Finishing…"}`
+            : `Processing ${mediaType}…`
           : noneChecked
           ? "No segments selected"
-          : !audioFile
-          ? "Audio file unavailable for export"
-          : `Export clean audio — ${selectedCount} segment${selectedCount !== 1 ? "s" : ""} silenced`}
+          : !hasSourceFile
+          ? `${mediaType === "video" ? "Video" : "Audio"} file unavailable for export`
+          : videoDurationMissing
+          ? "Waiting for video to load…"
+          : `Export with ${selectedCount} segment${selectedCount !== 1 ? "s" : ""} removed`}
       </button>
 
-      {!audioFile && !exportError && (
+      {/* Video export progress bar */}
+      {exporting && mediaType === "video" && (
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200" aria-hidden>
+          <div
+            className="h-full rounded-full bg-slate-900 transition-all duration-200"
+            style={{ width: `${exportProgress}%` }}
+          />
+        </div>
+      )}
+
+      {!hasSourceFile && !exportError && (
         <p className="text-center text-xs text-slate-400">
-          Re-upload the original file to enable audio export.
+          Re-upload the original file to enable export.
         </p>
       )}
     </div>

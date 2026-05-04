@@ -38,6 +38,42 @@ export function silenceSegments(source: AudioBuffer, ranges: TimeRange[]): Audio
 }
 
 /**
+ * Returns a new, shorter AudioBuffer containing only the kept time ranges (concatenated).
+ * Ranges must be sorted and non-overlapping. Does not mutate the source.
+ */
+export function cutSegments(source: AudioBuffer, keepRanges: TimeRange[]): AudioBuffer {
+  if (keepRanges.length === 0) {
+    throw new Error("All content would be removed. Deselect at least one segment to keep.");
+  }
+
+  const sr = source.sampleRate;
+  const totalSamples = keepRanges.reduce((acc, { start, end }) => {
+    const s = Math.floor(start * sr);
+    const e = Math.min(Math.ceil(end * sr), source.length);
+    return acc + Math.max(0, e - s);
+  }, 0);
+
+  const ctx = new OfflineAudioContext(source.numberOfChannels, totalSamples, sr);
+  const out = ctx.createBuffer(source.numberOfChannels, totalSamples, sr);
+
+  for (let ch = 0; ch < source.numberOfChannels; ch++) {
+    const srcData = source.getChannelData(ch);
+    const outData = out.getChannelData(ch);
+    let writePos = 0;
+    for (const { start, end } of keepRanges) {
+      const s = Math.floor(start * sr);
+      const e = Math.min(Math.ceil(end * sr), source.length);
+      if (e > s) {
+        outData.set(srcData.subarray(s, e), writePos);
+        writePos += e - s;
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
  * Decodes an audio File into an AudioBuffer.
  * Throws if the browser cannot decode the format.
  */
@@ -54,21 +90,26 @@ export async function decodeAudioFile(file: File): Promise<AudioBuffer> {
 /**
  * Encodes an AudioBuffer to a downloadable Blob.
  * Prefers Opus (ogg) — same format as WhatsApp voice notes.
- * Falls back to WAV if MediaRecorder doesn't support Opus.
+ * Prefers Opus (ogg), then MP4/AAC (Safari), then WAV as last resort.
  */
 export async function encodeAudioBuffer(buffer: AudioBuffer): Promise<{ blob: Blob; ext: string }> {
-  const opusMime = "audio/ogg; codecs=opus";
-  const supportsOpus = typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(opusMime);
-  const mimeType = supportsOpus ? opusMime : "audio/wav";
-  const ext = supportsOpus ? "opus" : "wav";
+  // Prefer Opus (Chrome/Firefox), then MP4 AAC (Safari), WAV only as last resort
+  const candidates: Array<{ mime: string; ext: string }> = [
+    { mime: "audio/ogg; codecs=opus", ext: "ogg" },
+    { mime: "audio/mp4",              ext: "m4a" },
+    { mime: "audio/webm; codecs=opus", ext: "webm" },
+  ];
 
-  if (!supportsOpus) {
-    // WAV encode via raw PCM — works in all browsers without MediaRecorder
-    const wavBlob = audioBufferToWav(buffer);
-    return { blob: wavBlob, ext };
+  const supported =
+    typeof MediaRecorder !== "undefined"
+      ? candidates.find((c) => MediaRecorder.isTypeSupported(c.mime))
+      : undefined;
+
+  if (!supported) {
+    // WAV is always decodable by Whisper but can be large — last resort only
+    return { blob: audioBufferToWav(buffer), ext: "wav" };
   }
 
-  // Play buffer through a MediaStreamDestination and capture with MediaRecorder
   const ctx = new AudioContext();
   const dest = ctx.createMediaStreamDestination();
   const source = ctx.createBufferSource();
@@ -76,7 +117,7 @@ export async function encodeAudioBuffer(buffer: AudioBuffer): Promise<{ blob: Bl
   source.connect(dest);
 
   const chunks: BlobPart[] = [];
-  const recorder = new MediaRecorder(dest.stream, { mimeType });
+  const recorder = new MediaRecorder(dest.stream, { mimeType: supported.mime });
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
   await new Promise<void>((resolve, reject) => {
@@ -88,7 +129,7 @@ export async function encodeAudioBuffer(buffer: AudioBuffer): Promise<{ blob: Bl
   });
 
   await ctx.close();
-  return { blob: new Blob(chunks, { type: mimeType }), ext };
+  return { blob: new Blob(chunks, { type: supported.mime }), ext: supported.ext };
 }
 
 /** Minimal WAV encoder for PCM float32 data. Used as fallback when Opus unavailable. */

@@ -237,6 +237,32 @@ export const projectVoiceNotes = pgTable(
   })
 );
 
+// Sensitivity reports — one per transcription + sensitivity-check run
+export const projectSensitivityReports = pgTable(
+  "project_sensitivity_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    mediaType: varchar("media_type", { length: 10 }).notNull(), // "audio" | "video"
+    fileName: text("file_name").notNull(),
+    transcript: text("transcript").notNull(),
+    segments: jsonb("segments").notNull(), // TranscriptSegment[] from Whisper
+    flags: jsonb("flags").notNull(),       // FlaggedSegment[] from Claude
+    flagCount: integer("flag_count").notNull(),
+    wordCount: integer("word_count").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    projectMediaIdx: index("project_sensitivity_reports_project_media_idx").on(
+      table.projectId,
+      table.mediaType,
+      table.createdAt
+    ),
+  })
+);
+
 // ──────────────────────────────────────────────────────────────────────────
 // WEBHOOK LOGS
 // ──────────────────────────────────────────────────────────────────────────

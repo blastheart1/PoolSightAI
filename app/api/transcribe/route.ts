@@ -18,6 +18,7 @@ const ALLOWED_TYPES = new Set([
   "audio/webm",
   "audio/flac",
   "video/webm", // webm audio recorded via MediaRecorder has video/webm MIME
+  "video/mp4",  // WhatsApp video recordings — Whisper reads the audio track
 ]);
 
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB — Whisper hard limit
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
   const ext = file.name?.split(".").pop()?.toLowerCase() ?? "";
   const extMimeMap: Record<string, string> = {
     mp3: "audio/mpeg",
-    mp4: "audio/mp4",
+    mp4: "video/mp4",
     m4a: "audio/mp4",
     wav: "audio/wav",
     ogg: "audio/ogg",
