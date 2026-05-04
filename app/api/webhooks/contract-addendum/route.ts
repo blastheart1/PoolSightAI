@@ -222,30 +222,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(response);
     }
 
-    // --- NEW PROJECT: original contract + addendums not yet in system ---
-    // Require the original contract link to bootstrap the project
-    if (!preParse.hasOriginalContract || !preParse.originalContractUrl) {
-      await saveWebhookLog({
-        action: "error",
-        orderNo: preParse.orderNo,
-        clientName: preParse.clientName,
-        emailSubject: logEmailSubject,
-        payloadKeys: logPayloadKeys,
-        preParseResult: logPreParse,
-        errorMessage: `Order #${preParse.orderNo} not found and no original contract link in email to bootstrap from`,
-      });
-      return NextResponse.json(
-        {
-          error: `Order #${preParse.orderNo} not found and no original contract link present. Cannot create project without the original contract.`,
-        },
-        { status: 422 }
-      );
-    }
+    // --- NEW PROJECT: create from original contract + addendums ---
+    // When the email has no original contract link, fall back to location data
+    // already extracted from the email body by preParseEml (orderNo, address, etc.)
+    // so the project is still created with correct metadata.
+    const locationOverride = !preParse.hasOriginalContract
+      ? {
+          orderNo: preParse.orderNo,
+          clientName: preParse.clientName || undefined,
+          streetAddress: preParse.streetAddress ?? "",
+          city: preParse.city ?? "",
+          state: preParse.state ?? "",
+          zip: preParse.zip ?? "",
+          orderGrandTotal: preParse.orderGrandTotal,
+        }
+      : undefined;
 
-    console.log("[webhook/contract-addendum] New project — full parse (original + addendums)");
+    console.log(
+      "[webhook/contract-addendum] New project — original contract present:",
+      preParse.hasOriginalContract
+    );
     const { location, items } = await runLinksFlow({
-      originalContractUrl: preParse.originalContractUrl,
+      originalContractUrl: preParse.originalContractUrl ?? "",
       addendumLinks: preParse.addendumUrls,
+      locationOverride,
     });
 
     const street = location.streetAddress?.trim() ?? "";
