@@ -161,33 +161,32 @@ export async function runLinksFlow(opts: {
     existingData = await fetchExistingProjectData(existingProjectId);
   }
 
-  if (originalContractUrl.trim()) {
-    const html = await fetchAddendumHTML(originalContractUrl);
+  // Deduplicate addendum URLs before parallel fetch
+  const dedupedLinks = deduplicateUrls(addendumLinks);
+
+  // Fetch original contract and all addendums in parallel to stay within timeout
+  const [originalHtml, addendumData] = await Promise.all([
+    originalContractUrl.trim() ? fetchAddendumHTML(originalContractUrl) : Promise.resolve(null),
+    dedupedLinks.length > 0 ? fetchAndParseAddendums(dedupedLinks) : Promise.resolve([]),
+  ]);
+
+  if (originalHtml) {
     const contractId = extractAddendumNumber(originalContractUrl);
 
-    // Only parse original contract items if this is a fresh parse
+    // Only parse original contract items for a fresh (new-project) parse
     if (!existingData) {
-      const allItems = parseOriginalContract(html, contractId, originalContractUrl);
+      const allItems = parseOriginalContract(originalHtml, contractId, originalContractUrl);
       freshItems = allItems.filter((it) => !it.isOptional);
     }
 
     if (!locationOverride) {
-      const fromHtml = extractLocation(html);
+      const fromHtml = extractLocation(originalHtml);
       if (fromHtml.orderNo || fromHtml.streetAddress) location = fromHtml;
     }
   }
 
   if (locationOverride) {
     location = { ...location, ...locationOverride };
-  }
-
-  // Deduplicate addendum URLs
-  const dedupedLinks = deduplicateUrls(addendumLinks);
-
-  // Fetch and parse addendums
-  let addendumData: AddendumData[] = [];
-  if (dedupedLinks.length > 0) {
-    addendumData = await fetchAndParseAddendums(dedupedLinks);
   }
 
   let merged: OrderItem[];

@@ -515,19 +515,31 @@ export async function fetchAndParseAddendum(
 }
 
 export async function fetchAndParseAddendums(
-  urls: string[]
+  urls: string[],
+  concurrency = 5
 ): Promise<AddendumData[]> {
-  const results: AddendumData[] = [];
   const errors: Array<{ url: string; error: string }> = [];
-  for (const url of urls) {
-    try {
-      results.push(await fetchAndParseAddendum(url));
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Unknown error";
-      errors.push({ url, error: msg });
-      console.error(`[Addendum Parser] Error processing ${url}:`, msg);
+
+  // Process in parallel batches to stay within Vercel's 60s limit
+  // while avoiding overwhelming the ProDBX server.
+  const settled: Array<AddendumData | null> = [];
+  for (let i = 0; i < urls.length; i += concurrency) {
+    const batch = urls.slice(i, i + concurrency);
+    const batchResults = await Promise.allSettled(batch.map(fetchAndParseAddendum));
+    for (let j = 0; j < batchResults.length; j++) {
+      const r = batchResults[j];
+      if (r.status === "fulfilled") {
+        settled.push(r.value);
+      } else {
+        const msg = r.reason instanceof Error ? r.reason.message : "Unknown error";
+        errors.push({ url: batch[j], error: msg });
+        console.error(`[Addendum Parser] Error processing ${batch[j]}:`, msg);
+        settled.push(null);
+      }
     }
   }
+
+  const results = settled.filter((r): r is AddendumData => r !== null);
   if (results.length === 0 && urls.length > 0) {
     throw new Error(
       `All addendum URLs failed to process. Errors: ${errors.map((e) => e.error).join("; ")}`
