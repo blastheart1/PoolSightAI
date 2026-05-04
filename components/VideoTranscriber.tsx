@@ -1,26 +1,32 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { FilmIcon, DocumentTextIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
+import { FilmIcon, DocumentTextIcon, CheckCircleIcon, ChartBarIcon } from "@heroicons/react/24/outline";
 import { SensitivityPanel } from "./SensitivityPanel";
+import { decodeAudioFile, encodeAudioBuffer } from "@/lib/audio/silenceSegments";
 import type { TranscriptSegment, FlaggedSegment } from "@/lib/sensitivity/types";
 
 const ACCEPTED_TYPES = ".mp4,.mov,.webm";
-const MAX_MB = 25;
+const MAX_MB = 200; // client-side audio extraction removes the Vercel payload limit concern
+
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2";
 
 export interface VideoTranscriberProps {
   projectId: string;
   onTranscriptChange: (transcript: string, segments: TranscriptSegment[]) => void;
+  /** Called when the user clicks "Generate site report" after transcription */
+  onRequestAnalysis?: () => void;
+  analysisLoading?: boolean;
   disabled?: boolean;
 }
 
 type Stage =
   | "idle"
-  | "uploading"
-  | "transcribing"
-  | "checking"
-  | "ready"
-  | "exporting";
+  | "extracting"   // decoding audio track client-side
+  | "transcribing" // uploading audio blob + waiting for Whisper
+  | "checking"     // Claude sensitivity check
+  | "ready";
 
 type SensitivityState =
   | { status: "idle" }
@@ -29,15 +35,20 @@ type SensitivityState =
   | { status: "error"; message: string };
 
 const STAGE_LABELS: Record<Stage, string> = {
-  idle:        "",
-  uploading:   "Uploading video…",
-  transcribing:"Transcribing audio track…",
-  checking:    "Checking for sensitive content…",
-  ready:       "",
-  exporting:   "Processing clean video…",
+  idle:         "",
+  extracting:   "Extracting audio track…",
+  transcribing: "Transcribing with Whisper…",
+  checking:     "Checking for sensitive content…",
+  ready:        "",
 };
 
-export function VideoTranscriber({ projectId, onTranscriptChange, disabled }: VideoTranscriberProps) {
+export function VideoTranscriber({
+  projectId,
+  onTranscriptChange,
+  onRequestAnalysis,
+  analysisLoading = false,
+  disabled,
+}: VideoTranscriberProps) {
   const [file, setFile] = useState<File | null>(null);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number | undefined>(undefined);
@@ -54,10 +65,6 @@ export function VideoTranscriber({ projectId, onTranscriptChange, disabled }: Vi
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0] ?? null;
     if (!selected) return;
-    if (selected.size > MAX_MB * 1024 * 1024) {
-      setError(`File too large (${(selected.size / 1024 / 1024).toFixed(1)} MB). Max is ${MAX_MB} MB.`);
-      return;
-    }
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     const url = URL.createObjectURL(selected);
     setFile(selected);
@@ -71,14 +78,13 @@ export function VideoTranscriber({ projectId, onTranscriptChange, disabled }: Vi
   };
 
   const handleVideoLoaded = () => {
-    if (videoRef.current) {
-      setVideoDuration(videoRef.current.duration);
-    }
+    if (videoRef.current) setVideoDuration(videoRef.current.duration);
   };
 
   const runSensitivityCheck = async (segs: TranscriptSegment[]) => {
     if (segs.length === 0) {
       setSensitivity({ status: "done", flaggedSegments: [] });
+      setStage("ready");
       return;
     }
     setStage("checking");
@@ -92,27 +98,33 @@ export function VideoTranscriber({ projectId, onTranscriptChange, disabled }: Vi
       const data = await res.json() as { flaggedSegments?: FlaggedSegment[]; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Sensitivity check failed");
       setSensitivity({ status: "done", flaggedSegments: data.flaggedSegments ?? [] });
-      setStage("ready");
     } catch (e) {
       setSensitivity({
         status: "error",
         message: e instanceof Error ? e.message : "Sensitivity check failed",
       });
+    } finally {
       setStage("ready");
     }
   };
 
   const handleTranscribe = async () => {
     if (!file) return;
-    setStage("uploading");
     setError("");
     setSaved(false);
     setSensitivity({ status: "idle" });
 
     try {
-      const formData = new FormData();
-      formData.append("audio", file);
+      // Extract the audio track client-side — avoids sending the full MP4 over the
+      // network and keeps the payload well under Vercel's function body limit.
+      setStage("extracting");
+      const audioBuffer = await decodeAudioFile(file);
+      const { blob: audioBlob, ext } = await encodeAudioBuffer(audioBuffer);
+      const audioFile = new File([audioBlob], `audio.${ext}`, { type: audioBlob.type });
+
       setStage("transcribing");
+      const formData = new FormData();
+      formData.append("audio", audioFile);
       const res = await fetch("/api/transcribe", { method: "POST", body: formData });
       const data = await res.json().catch(() => ({})) as {
         transcript?: string;
@@ -180,7 +192,7 @@ export function VideoTranscriber({ projectId, onTranscriptChange, disabled }: Vi
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const isProcessing = stage === "uploading" || stage === "transcribing" || stage === "checking";
+  const isProcessing = stage !== "idle" && stage !== "ready";
 
   return (
     <div className="space-y-3">
@@ -210,22 +222,18 @@ export function VideoTranscriber({ projectId, onTranscriptChange, disabled }: Vi
           </button>
         )}
 
-        {isProcessing && (
-          <span className="text-sm text-slate-500 animate-pulse">{STAGE_LABELS[stage]}</span>
-        )}
-
         {(file || transcript) && !isProcessing && (
           <button
             type="button"
             onClick={clearAll}
-            className="text-xs text-slate-400 underline hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+            className={`text-xs text-slate-400 underline hover:text-slate-600 ${FOCUS_RING}`}
           >
             Clear
           </button>
         )}
       </div>
 
-      <p className="text-xs text-slate-400">Supported: mp4, mov, webm · Max {MAX_MB} MB</p>
+      <p className="text-xs text-slate-400">Supported: mp4, mov, webm</p>
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
@@ -243,16 +251,16 @@ export function VideoTranscriber({ projectId, onTranscriptChange, disabled }: Vi
         </div>
       )}
 
-      {/* Loading overlay for long operations */}
+      {/* Stage progress indicator */}
       {isProcessing && (
         <div className="flex items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" aria-hidden />
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-sky-400 border-t-transparent shrink-0" aria-hidden />
           <p className="text-sm text-sky-800">{STAGE_LABELS[stage]}</p>
         </div>
       )}
 
-      {/* Transcript textarea */}
-      {(transcript || stage === "ready" || stage !== "idle") && (
+      {/* Transcript */}
+      {transcript && (
         <div className="space-y-1">
           <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <DocumentTextIcon className="h-3.5 w-3.5" aria-hidden />
@@ -264,35 +272,30 @@ export function VideoTranscriber({ projectId, onTranscriptChange, disabled }: Vi
             onChange={handleTextChange}
             disabled={disabled || isProcessing}
             rows={5}
-            placeholder="Upload a video and click Transcribe…"
             className="w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-inner focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600 disabled:opacity-60"
           />
           <div className="flex items-center justify-between">
-            {transcript ? (
-              <p className="text-[11px] text-slate-400">
-                {transcript.split(/\s+/).filter(Boolean).length} words
-              </p>
-            ) : <span />}
-            {transcript && (
-              <div className="flex items-center gap-2">
-                {saved && (
-                  <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
-                    <CheckCircleIcon className="h-3.5 w-3.5" aria-hidden />
-                    Saved
-                  </span>
-                )}
-                {!saved && (
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={saving || disabled}
-                    className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 transition"
-                  >
-                    {saving ? "Saving…" : "Save voice note"}
-                  </button>
-                )}
-              </div>
-            )}
+            <p className="text-[11px] text-slate-400">
+              {transcript.split(/\s+/).filter(Boolean).length} words
+            </p>
+            <div className="flex items-center gap-2">
+              {saved && (
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
+                  <CheckCircleIcon className="h-3.5 w-3.5" aria-hidden />
+                  Saved
+                </span>
+              )}
+              {!saved && (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving || disabled}
+                  className={`rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition ${FOCUS_RING}`}
+                >
+                  {saving ? "Saving…" : "Save voice note"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -306,17 +309,43 @@ export function VideoTranscriber({ projectId, onTranscriptChange, disabled }: Vi
       )}
 
       {sensitivity.status === "done" && (
-        <div className="border-t border-slate-200 pt-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Client Sensitivity Review
-          </p>
-          <SensitivityPanel
-            flaggedSegments={sensitivity.flaggedSegments}
-            videoFile={file}
-            projectId={projectId}
-            videoDuration={videoDuration}
-            mediaType="video"
-          />
+        <div className="border-t border-slate-200 pt-3 space-y-4">
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Client Sensitivity Review
+            </p>
+            <SensitivityPanel
+              flaggedSegments={sensitivity.flaggedSegments}
+              videoFile={file}
+              projectId={projectId}
+              videoDuration={videoDuration}
+              mediaType="video"
+            />
+          </div>
+
+          {/* Generate site report — lives here so the user never has to look elsewhere */}
+          {onRequestAnalysis && (
+            <div className="border-t border-slate-200 pt-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Site Inspection Report
+              </p>
+              <button
+                type="button"
+                onClick={onRequestAnalysis}
+                disabled={analysisLoading || disabled}
+                className={[
+                  "inline-flex w-full items-center justify-center gap-2 rounded-full border transition",
+                  "h-10 px-4 text-sm font-semibold",
+                  "border-violet-700 bg-violet-700 text-white hover:bg-violet-800 active:bg-violet-900",
+                  "disabled:cursor-not-allowed disabled:opacity-50",
+                  FOCUS_RING,
+                ].join(" ")}
+              >
+                <ChartBarIcon className="h-4 w-4" aria-hidden />
+                {analysisLoading ? "Analyzing…" : "Generate site report"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

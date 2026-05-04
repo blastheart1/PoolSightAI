@@ -1206,6 +1206,8 @@ export default function ProjectDetailPage({
                 <VideoTranscriber
                   projectId={id!}
                   onTranscriptChange={(t, _segs) => { setAudioTranscript(t); loadVoiceNotes(); }}
+                  onRequestAnalysis={runAudioAnalysis}
+                  analysisLoading={analysisLoading}
                   disabled={analysisLoading}
                 />
               </div>
@@ -1269,14 +1271,14 @@ export default function ProjectDetailPage({
                   </button>
                 </>
               )}
-              {(imageSourceTab === "voice" || imageSourceTab === "video") && (
+              {imageSourceTab === "voice" && (
                 <button
                   type="button"
                   onClick={runAudioAnalysis}
                   disabled={analysisLoading || !audioTranscript.trim()}
                   className="rounded-lg bg-violet-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
                 >
-                  {analysisLoading ? "Analyzing…" : imageSourceTab === "video" ? "Analyze Video Note" : "Analyze Voice Note"}
+                  {analysisLoading ? "Analyzing…" : "Analyze Voice Note"}
                 </button>
               )}
             </div>
