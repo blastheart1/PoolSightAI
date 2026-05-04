@@ -79,10 +79,30 @@ export function VideoTranscriber({
     if (videoRef.current) setVideoDuration(videoRef.current.duration);
   };
 
-  const runSensitivityCheck = async (segs: TranscriptSegment[]) => {
+  const saveSensitivityReport = (
+    fileName: string,
+    text: string,
+    segs: TranscriptSegment[],
+    flags: FlaggedSegment[]
+  ) => {
+    fetch(`/api/projects/${projectId}/sensitivity-reports`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mediaType: "video",
+        fileName,
+        transcript: text,
+        segments: segs,
+        flags,
+      }),
+    }).catch(() => {/* non-blocking */});
+  };
+
+  const runSensitivityCheck = async (segs: TranscriptSegment[], text: string, fileName: string) => {
     if (segs.length === 0) {
       setSensitivity({ status: "done", flaggedSegments: [] });
       setStage("ready");
+      onComplete?.();
       return;
     }
     setStage("checking");
@@ -95,7 +115,9 @@ export function VideoTranscriber({
       });
       const data = await res.json() as { flaggedSegments?: FlaggedSegment[]; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Sensitivity check failed");
-      setSensitivity({ status: "done", flaggedSegments: data.flaggedSegments ?? [] });
+      const flags = data.flaggedSegments ?? [];
+      setSensitivity({ status: "done", flaggedSegments: flags });
+      saveSensitivityReport(fileName, text, segs, flags);
     } catch (e) {
       setSensitivity({
         status: "error",
@@ -138,7 +160,7 @@ export function VideoTranscriber({
       setSegments(segs);
       onTranscriptChange(text, segs);
 
-      await runSensitivityCheck(segs);
+      await runSensitivityCheck(segs, text, file.name);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Transcription failed");
       setStage("idle");
@@ -243,6 +265,7 @@ export function VideoTranscriber({
             ref={videoRef}
             src={objectUrl}
             controls
+            autoPlay={false}
             onLoadedMetadata={handleVideoLoaded}
             className="w-full max-h-64 object-contain"
             aria-label="Video preview"

@@ -94,6 +94,7 @@ export function SensitivityPanel({
     () => new Set(displaySegments.map((s) => s.segmentId))
   );
   const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
   const [exportError, setExportError] = useState("");
 
   const selectedCount = checked.size;
@@ -153,7 +154,8 @@ export function SensitivityPanel({
     const keepRanges = invertRanges(videoDuration, removeRanges);
 
     // Client-side export — no server upload, avoids payload limits
-    const blob = await cutVideoClientSide(videoFile, keepRanges);
+    setExportProgress(0);
+    const blob = await cutVideoClientSide(videoFile, keepRanges, setExportProgress);
     const ext = blob.type.includes("mp4") ? "mp4" : "webm";
     const baseName = videoFile.name.replace(/\.[^/.]+$/, "");
     const url = URL.createObjectURL(blob);
@@ -173,6 +175,7 @@ export function SensitivityPanel({
       } else {
         await handleAudioExport();
       }
+    setExportProgress(100);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Export failed";
       setExportError(
@@ -182,6 +185,7 @@ export function SensitivityPanel({
       );
     } finally {
       setExporting(false);
+      setExportProgress(0);
     }
   }, [mediaType, handleAudioExport, handleVideoExport]);
 
@@ -312,7 +316,9 @@ export function SensitivityPanel({
         ].join(" ")}
       >
         {exporting
-          ? mediaType === "video" ? "Processing video in real-time…" : `Processing ${mediaType}…`
+          ? mediaType === "video"
+            ? `Processing video… ${exportProgress < 100 ? Math.round(exportProgress) + "%" : "Finishing…"}`
+            : `Processing ${mediaType}…`
           : noneChecked
           ? "No segments selected"
           : !hasSourceFile
@@ -321,6 +327,16 @@ export function SensitivityPanel({
           ? "Waiting for video to load…"
           : `Export with ${selectedCount} segment${selectedCount !== 1 ? "s" : ""} removed`}
       </button>
+
+      {/* Video export progress bar */}
+      {exporting && mediaType === "video" && (
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200" aria-hidden>
+          <div
+            className="h-full rounded-full bg-slate-900 transition-all duration-200"
+            style={{ width: `${exportProgress}%` }}
+          />
+        </div>
+      )}
 
       {!hasSourceFile && !exportError && (
         <p className="text-center text-xs text-slate-400">

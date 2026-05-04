@@ -9,7 +9,8 @@ import type { TimeRange } from "@/lib/audio/silenceSegments";
  */
 export async function cutVideoClientSide(
   videoFile: File,
-  keepRanges: TimeRange[]
+  keepRanges: TimeRange[],
+  onProgress?: (pct: number) => void
 ): Promise<Blob> {
   if (keepRanges.length === 0) {
     throw new Error("All content would be removed. Deselect at least one segment to keep.");
@@ -53,7 +54,13 @@ export async function cutVideoClientSide(
 
         recorder.start();
 
+        const totalKeptSeconds = keepRanges.reduce((acc, { start, end }) => acc + (end - start), 0);
+        let keptSoFar = 0;
+
         for (const { start, end } of keepRanges) {
+          const rangeDuration = end - start;
+          const rangeStart = keptSoFar;
+
           video.currentTime = start;
           await new Promise<void>((res) => { video.onseeked = () => res(); });
 
@@ -65,10 +72,15 @@ export async function cutVideoClientSide(
                 video.pause();
                 video.ontimeupdate = null;
                 res();
+              } else if (onProgress && totalKeptSeconds > 0) {
+                const elapsed = video.currentTime - start;
+                onProgress(Math.min(99, ((rangeStart + elapsed) / totalKeptSeconds) * 100));
               }
             };
             video.ontimeupdate = check;
           });
+
+          keptSoFar += rangeDuration;
         }
 
         recorder.stop();

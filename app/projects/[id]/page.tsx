@@ -10,6 +10,7 @@ import { TrelloImagePicker, type SelectedTrelloImage } from "../../../components
 import { SuggestionReviewTable, type LineItemResult } from "../../../components/SuggestionReviewTable";
 import { AudioTranscriber } from "../../../components/AudioTranscriber";
 import { VideoTranscriber } from "../../../components/VideoTranscriber";
+import { SensitivityReportList } from "../../../components/SensitivityReportList";
 import type { OrderItem } from "../../../lib/contractTypes";
 
 interface ContractItemRow {
@@ -1308,6 +1309,8 @@ export default function ProjectDetailPage({
               </>
             ) : null}
           </section>
+
+          <SensitivityReportList projectId={id} />
 
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-semibold tracking-wide text-slate-900">Report entries</h2>
