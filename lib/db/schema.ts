@@ -227,6 +227,7 @@ export const projectVoiceNotes = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     transcript: text("transcript").notNull(),
+    segments: jsonb("segments"), // TranscriptSegment[] from Whisper verbose_json
     label: varchar("label", { length: 255 }),
     wordCount: integer("word_count"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
