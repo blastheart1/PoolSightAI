@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { FilmIcon, DocumentTextIcon, CheckCircleIcon, ChartBarIcon } from "@heroicons/react/24/outline";
+import { FilmIcon, DocumentTextIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
 import { SensitivityPanel } from "./SensitivityPanel";
 import { decodeAudioFile, encodeAudioBuffer } from "@/lib/audio/silenceSegments";
 import type { TranscriptSegment, FlaggedSegment } from "@/lib/sensitivity/types";
@@ -15,9 +15,8 @@ const FOCUS_RING =
 export interface VideoTranscriberProps {
   projectId: string;
   onTranscriptChange: (transcript: string, segments: TranscriptSegment[]) => void;
-  /** Called when the user clicks "Generate site report" after transcription */
-  onRequestAnalysis?: () => void;
-  analysisLoading?: boolean;
+  /** Called automatically after transcription + sensitivity check complete */
+  onComplete?: () => void;
   disabled?: boolean;
 }
 
@@ -45,8 +44,7 @@ const STAGE_LABELS: Record<Stage, string> = {
 export function VideoTranscriber({
   projectId,
   onTranscriptChange,
-  onRequestAnalysis,
-  analysisLoading = false,
+  onComplete,
   disabled,
 }: VideoTranscriberProps) {
   const [file, setFile] = useState<File | null>(null);
@@ -105,6 +103,7 @@ export function VideoTranscriber({
       });
     } finally {
       setStage("ready");
+      onComplete?.();
     }
   };
 
@@ -309,43 +308,17 @@ export function VideoTranscriber({
       )}
 
       {sensitivity.status === "done" && (
-        <div className="border-t border-slate-200 pt-3 space-y-4">
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Client Sensitivity Review
-            </p>
-            <SensitivityPanel
-              flaggedSegments={sensitivity.flaggedSegments}
-              videoFile={file}
-              projectId={projectId}
-              videoDuration={videoDuration}
-              mediaType="video"
-            />
-          </div>
-
-          {/* Generate site report — lives here so the user never has to look elsewhere */}
-          {onRequestAnalysis && (
-            <div className="border-t border-slate-200 pt-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Site Inspection Report
-              </p>
-              <button
-                type="button"
-                onClick={onRequestAnalysis}
-                disabled={analysisLoading || disabled}
-                className={[
-                  "inline-flex w-full items-center justify-center gap-2 rounded-full border transition",
-                  "h-10 px-4 text-sm font-semibold",
-                  "border-violet-700 bg-violet-700 text-white hover:bg-violet-800 active:bg-violet-900",
-                  "disabled:cursor-not-allowed disabled:opacity-50",
-                  FOCUS_RING,
-                ].join(" ")}
-              >
-                <ChartBarIcon className="h-4 w-4" aria-hidden />
-                {analysisLoading ? "Analyzing…" : "Generate site report"}
-              </button>
-            </div>
-          )}
+        <div className="border-t border-slate-200 pt-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Client Sensitivity Review
+          </p>
+          <SensitivityPanel
+            flaggedSegments={sensitivity.flaggedSegments}
+            videoFile={file}
+            projectId={projectId}
+            videoDuration={videoDuration}
+            mediaType="video"
+          />
         </div>
       )}
     </div>
