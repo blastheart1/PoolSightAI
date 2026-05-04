@@ -52,7 +52,6 @@ export async function PATCH(
         );
       }
 
-      // Verify item belongs to this project
       const [item] = await db
         .select()
         .from(projectContractItems)
@@ -64,7 +63,6 @@ export async function PATCH(
         );
       if (!item) continue;
 
-      // Recalculate completedAmount
       const amount = item.amount != null ? parseFloat(String(item.amount)) : null;
       const completedAmount =
         amount != null ? String((amount * newProgressPct) / 100) : null;
@@ -78,7 +76,6 @@ export async function PATCH(
         })
         .where(eq(projectContractItems.id, contractItemId));
 
-      // Mark the AI result line item as applied
       if (analysisResultLineItemId) {
         await db
           .update(aiAnalysisResultLineItems)

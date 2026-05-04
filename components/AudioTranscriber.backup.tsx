@@ -2,33 +2,23 @@
 
 import { useState, useRef } from "react";
 import { MicrophoneIcon, DocumentTextIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
-import { SensitivityPanel } from "./SensitivityPanel";
-import type { TranscriptSegment, FlaggedSegment } from "@/lib/sensitivity/types";
 
 const ACCEPTED_TYPES = ".mp3,.m4a,.wav,.ogg,.opus,.webm,.flac,.mpeg,.mpga,.mp4";
 const MAX_MB = 25;
 
-export interface AudioTranscriberProps {
+interface AudioTranscriberProps {
   projectId: string;
-  onTranscriptChange: (transcript: string, segments: TranscriptSegment[]) => void;
+  onTranscriptChange: (transcript: string) => void;
   disabled?: boolean;
 }
-
-type SensitivityState =
-  | { status: "idle" }
-  | { status: "checking" }
-  | { status: "done"; flaggedSegments: FlaggedSegment[] }
-  | { status: "error"; message: string };
 
 export function AudioTranscriber({ projectId, onTranscriptChange, disabled }: AudioTranscriberProps) {
   const [file, setFile] = useState<File | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   const [error, setError] = useState("");
   const [transcript, setTranscript] = useState("");
-  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [sensitivity, setSensitivity] = useState<SensitivityState>({ status: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,27 +31,6 @@ export function AudioTranscriber({ projectId, onTranscriptChange, disabled }: Au
     setFile(selected);
     setError("");
     setSaved(false);
-    setSensitivity({ status: "idle" });
-  };
-
-  const runSensitivityCheck = async (segs: TranscriptSegment[]) => {
-    if (segs.length === 0) return;
-    setSensitivity({ status: "checking" });
-    try {
-      const res = await fetch(`/api/projects/${projectId}/sensitivity-check`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ segments: segs }),
-      });
-      const data = await res.json() as { flaggedSegments?: FlaggedSegment[]; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Sensitivity check failed");
-      setSensitivity({ status: "done", flaggedSegments: data.flaggedSegments ?? [] });
-    } catch (e) {
-      setSensitivity({
-        status: "error",
-        message: e instanceof Error ? e.message : "Sensitivity check failed",
-      });
-    }
   };
 
   const handleTranscribe = async () => {
@@ -69,27 +38,15 @@ export function AudioTranscriber({ projectId, onTranscriptChange, disabled }: Au
     setTranscribing(true);
     setError("");
     setSaved(false);
-    setSensitivity({ status: "idle" });
-
     try {
       const formData = new FormData();
       formData.append("audio", file);
       const res = await fetch("/api/transcribe", { method: "POST", body: formData });
-      const data = await res.json().catch(() => ({})) as {
-        transcript?: string;
-        segments?: TranscriptSegment[];
-        error?: string;
-      };
+      const data = await res.json().catch(() => ({})) as { transcript?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Transcription failed");
-
       const text = data.transcript ?? "";
-      const segs = data.segments ?? [];
       setTranscript(text);
-      setSegments(segs);
-      onTranscriptChange(text, segs);
-
-      // Kick off sensitivity check immediately after transcription
-      await runSensitivityCheck(segs);
+      onTranscriptChange(text);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Transcription failed");
     } finally {
@@ -106,7 +63,7 @@ export function AudioTranscriber({ projectId, onTranscriptChange, disabled }: Au
       const res = await fetch(`/api/projects/${projectId}/voice-notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript, label, segments }),
+        body: JSON.stringify({ transcript, label }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({})) as { error?: string };
@@ -121,22 +78,17 @@ export function AudioTranscriber({ projectId, onTranscriptChange, disabled }: Au
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const text = e.target.value;
-    setTranscript(text);
+    setTranscript(e.target.value);
     setSaved(false);
-    // Clear sensitivity results when transcript is manually edited
-    setSensitivity({ status: "idle" });
-    onTranscriptChange(text, segments);
+    onTranscriptChange(e.target.value);
   };
 
   const clearAll = () => {
     setFile(null);
     setTranscript("");
-    setSegments([]);
     setError("");
     setSaved(false);
-    setSensitivity({ status: "idle" });
-    onTranscriptChange("", []);
+    onTranscriptChange("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -232,30 +184,6 @@ export function AudioTranscriber({ projectId, onTranscriptChange, disabled }: Au
           )}
         </div>
       </div>
-
-      {/* Sensitivity analysis panel */}
-      {sensitivity.status === "checking" && (
-        <p className="text-xs text-slate-500 animate-pulse">Checking for sensitive content…</p>
-      )}
-
-      {sensitivity.status === "error" && (
-        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
-          <p className="text-sm font-semibold text-rose-800">Sensitivity check failed</p>
-          <p className="mt-0.5 text-xs text-rose-700">{sensitivity.message}</p>
-        </div>
-      )}
-
-      {sensitivity.status === "done" && (
-        <div className="border-t border-slate-200 pt-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Client Sensitivity Review
-          </p>
-          <SensitivityPanel
-            flaggedSegments={sensitivity.flaggedSegments}
-            audioFile={file}
-          />
-        </div>
-      )}
     </div>
   );
 }

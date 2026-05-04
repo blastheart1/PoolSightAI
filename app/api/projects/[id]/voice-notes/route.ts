@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "../../../../../lib/db";
 import { projects, projectVoiceNotes } from "../../../../../lib/db/schema";
 import { eq, desc } from "drizzle-orm";
+import type { TranscriptSegment } from "@/lib/sensitivity/types";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,7 @@ export async function GET(
       label: projectVoiceNotes.label,
       wordCount: projectVoiceNotes.wordCount,
       transcript: projectVoiceNotes.transcript,
+      segments: projectVoiceNotes.segments,
       createdAt: projectVoiceNotes.createdAt,
     })
     .from(projectVoiceNotes)
@@ -32,19 +34,29 @@ export async function POST(
   if (!db) return NextResponse.json({ error: "Database not configured" }, { status: 503 });
   const { id: projectId } = await params;
 
-  const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId));
+  const [project] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, projectId));
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const body = await request.json();
+  const body = await request.json() as {
+    transcript?: unknown;
+    label?: unknown;
+    segments?: TranscriptSegment[];
+  };
+
   const transcript = typeof body.transcript === "string" ? body.transcript.trim() : "";
   if (!transcript) return NextResponse.json({ error: "transcript is required" }, { status: 400 });
 
-  const label = typeof body.label === "string" && body.label.trim() ? body.label.trim() : null;
+  const label =
+    typeof body.label === "string" && body.label.trim() ? body.label.trim() : null;
   const wordCount = transcript.split(/\s+/).filter(Boolean).length;
+  const segments = Array.isArray(body.segments) ? body.segments : null;
 
   const [note] = await db
     .insert(projectVoiceNotes)
-    .values({ projectId, transcript, label, wordCount })
+    .values({ projectId, transcript, label, wordCount, segments })
     .returning();
 
   return NextResponse.json(note, { status: 201 });

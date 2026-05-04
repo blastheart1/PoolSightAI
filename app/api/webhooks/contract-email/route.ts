@@ -12,6 +12,7 @@ import {
 import { parseEML } from "../../../../lib/emlParser";
 import { validateAddendumUrl } from "../../../../lib/addendumParser";
 import { extractContractLinks } from "../../../../lib/contractLinkExtractor";
+import { toDec } from "../../../../lib/db/utils";
 import {
   findProjectByOrderNo,
   runLinksFlow,
@@ -96,11 +97,6 @@ function verifySecret(request: NextRequest): boolean {
   } catch {
     return false;
   }
-}
-
-function toDec(s: number | string | null | undefined): string | null {
-  if (s == null || s === "") return null;
-  return String(s);
 }
 
 export async function POST(request: NextRequest) {
@@ -351,11 +347,11 @@ export async function POST(request: NextRequest) {
       itemCount: typedItems.length,
     };
 
-    // Log success with item details
+    // Fire-and-forget: log success after response is returned.
     const itemSummary = typedItems.slice(0, 10).map((it, i) => ({
       idx: i, type: it.type, name: (it.productService ?? "").substring(0, 60), qty: it.qty, amt: it.amount,
     }));
-    await saveWebhookLog({
+    void saveWebhookLog({
       source: "zapier",
       action: "created",
       orderNo: preParse.orderNo,
@@ -367,7 +363,7 @@ export async function POST(request: NextRequest) {
       payloadSizes: logPayloadSizes,
       preParseResult: logPreParse,
       parseResult: { totalItems: typedItems.length, first10: itemSummary },
-    });
+    }).catch((e) => console.error("[webhook/contract-email] log save failed", e));
 
     return NextResponse.json(response);
   } catch (err) {

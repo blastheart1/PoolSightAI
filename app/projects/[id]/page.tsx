@@ -1194,7 +1194,7 @@ export default function ProjectDetailPage({
               <div className="mt-4">
                 <AudioTranscriber
                   projectId={id!}
-                  onTranscriptChange={(t) => { setAudioTranscript(t); loadVoiceNotes(); }}
+                  onTranscriptChange={(t, _segs) => { setAudioTranscript(t); loadVoiceNotes(); }}
                   disabled={analysisLoading}
                 />
               </div>

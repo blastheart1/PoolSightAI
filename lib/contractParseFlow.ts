@@ -1,6 +1,7 @@
 import {
   extractLocation,
 } from "./tableExtractor";
+import { toDec } from "./db/utils";
 import { normalizeToMmddyyyy } from "./utils/dateFormat";
 import type { Location, OrderItem } from "./contractTypes";
 import {
@@ -239,16 +240,7 @@ export async function runLinksFlow(opts: {
 }
 
 /**
- * Convert a value to a decimal-safe string for Postgres.
- * Returns null for null, undefined, and empty strings.
- */
-function toDec(s: number | string | null | undefined): string | null {
-  if (s == null || s === "") return null;
-  return String(s);
-}
-
-/**
- * Insert contract items into the database for a project.
+ * Insert contract items into the database for a project (single bulk statement).
  * Reusable by both POST /api/projects and the webhook.
  */
 export async function insertContractItems(
@@ -256,33 +248,32 @@ export async function insertContractItems(
   items: OrderItem[]
 ): Promise<void> {
   if (!db) throw new Error("Database not configured");
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    await db.insert(projectContractItems).values({
-      projectId,
-      rowIndex: i,
-      itemType: it.type ?? "item",
-      productService: it.productService ?? "",
-      qty: toDec(it.qty),
-      rate: toDec(it.rate),
-      amount: toDec(it.amount),
-      mainCategory: it.mainCategory ?? null,
-      subCategory: it.subCategory ?? null,
-      progressOverallPct: toDec(it.progressOverallPct),
-      completedAmount: toDec(it.completedAmount),
-      previouslyInvoicedPct: toDec(it.previouslyInvoicedPct),
-      previouslyInvoicedAmount: toDec(it.previouslyInvoicedAmount),
-      newProgressPct: toDec(it.newProgressPct),
-      thisBill: toDec(it.thisBill),
-      optionalPackageNumber:
-        typeof it.optionalPackageNumber === "number" ? it.optionalPackageNumber : null,
-      columnBLabel: it.columnBLabel ?? null,
-      isAddendumHeader: it.isAddendumHeader === true,
-      addendumNumber: it.addendumNumber ?? null,
-      addendumUrlId: it.addendumUrlId ?? null,
-      isBlankRow: it.isBlankRow === true,
-    });
-  }
+  if (items.length === 0) return;
+  const rows = items.map((it, i) => ({
+    projectId,
+    rowIndex: i,
+    itemType: it.type ?? "item",
+    productService: it.productService ?? "",
+    qty: toDec(it.qty),
+    rate: toDec(it.rate),
+    amount: toDec(it.amount),
+    mainCategory: it.mainCategory ?? null,
+    subCategory: it.subCategory ?? null,
+    progressOverallPct: toDec(it.progressOverallPct),
+    completedAmount: toDec(it.completedAmount),
+    previouslyInvoicedPct: toDec(it.previouslyInvoicedPct),
+    previouslyInvoicedAmount: toDec(it.previouslyInvoicedAmount),
+    newProgressPct: toDec(it.newProgressPct),
+    thisBill: toDec(it.thisBill),
+    optionalPackageNumber:
+      typeof it.optionalPackageNumber === "number" ? it.optionalPackageNumber : null,
+    columnBLabel: it.columnBLabel ?? null,
+    isAddendumHeader: it.isAddendumHeader === true,
+    addendumNumber: it.addendumNumber ?? null,
+    addendumUrlId: it.addendumUrlId ?? null,
+    isBlankRow: it.isBlankRow === true,
+  }));
+  await db.insert(projectContractItems).values(rows);
 }
 
 /**
