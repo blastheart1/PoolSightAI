@@ -9,6 +9,7 @@ import { TrelloListPicker, type TrelloLinkedList } from "../../../components/Tre
 import { TrelloImagePicker, type SelectedTrelloImage } from "../../../components/TrelloImagePicker";
 import { SuggestionReviewTable, type LineItemResult } from "../../../components/SuggestionReviewTable";
 import { AudioTranscriber } from "../../../components/AudioTranscriber";
+import { VideoTranscriber } from "../../../components/VideoTranscriber";
 import type { OrderItem } from "../../../lib/contractTypes";
 
 interface ContractItemRow {
@@ -443,7 +444,7 @@ export default function ProjectDetailPage({
   const [savedLineItemResults, setSavedLineItemResults] = useState<LineItemResult[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [pmUpdate, setPmUpdate] = useState("");
-  const [imageSourceTab, setImageSourceTab] = useState<"upload" | "trello" | "voice">("upload");
+  const [imageSourceTab, setImageSourceTab] = useState<"upload" | "trello" | "voice" | "video">("upload");
   const [trelloImages, setTrelloImages] = useState<SelectedTrelloImage[]>([]);
   const [strictPBMode, setStrictPBMode] = useState(false);
   const [analysisRetrying, setAnalysisRetrying] = useState(false);
@@ -1109,7 +1110,7 @@ export default function ProjectDetailPage({
 
             {/* Image source tabs — always visible */}
             <div className="mt-4 flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 w-fit flex-wrap">
-              {(["upload", "trello", "voice"] as const)
+              {(["upload", "trello", "voice", "video"] as const)
                 .filter((tab) => tab !== "trello" || trelloLinkedLists.length > 0)
                 .map((tab) => (
                   <button
@@ -1126,7 +1127,7 @@ export default function ProjectDetailPage({
                         : "text-slate-500 hover:text-slate-700",
                     ].join(" ")}
                   >
-                    {tab === "upload" ? "Upload Photos" : tab === "trello" ? "From Trello" : "Voice Note"}
+                    {tab === "upload" ? "Upload Photos" : tab === "trello" ? "From Trello" : tab === "voice" ? "Voice Note" : "Video Note"}
                   </button>
                 ))}
             </div>
@@ -1200,7 +1201,17 @@ export default function ProjectDetailPage({
               </div>
             )}
 
-            {imageSourceTab !== "voice" && (
+            {imageSourceTab === "video" && (
+              <div className="mt-4">
+                <VideoTranscriber
+                  projectId={id!}
+                  onTranscriptChange={(t, _segs) => { setAudioTranscript(t); loadVoiceNotes(); }}
+                  disabled={analysisLoading}
+                />
+              </div>
+            )}
+
+            {imageSourceTab !== "voice" && imageSourceTab !== "video" && (
               <>
                 <label htmlFor="pm-update" className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   PM update (optional)
@@ -1258,14 +1269,14 @@ export default function ProjectDetailPage({
                   </button>
                 </>
               )}
-              {imageSourceTab === "voice" && (
+              {(imageSourceTab === "voice" || imageSourceTab === "video") && (
                 <button
                   type="button"
                   onClick={runAudioAnalysis}
                   disabled={analysisLoading || !audioTranscript.trim()}
                   className="rounded-lg bg-violet-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
                 >
-                  {analysisLoading ? "Analyzing…" : "Analyze Voice Note"}
+                  {analysisLoading ? "Analyzing…" : imageSourceTab === "video" ? "Analyze Video Note" : "Analyze Voice Note"}
                 </button>
               )}
             </div>

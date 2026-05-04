@@ -38,6 +38,42 @@ export function silenceSegments(source: AudioBuffer, ranges: TimeRange[]): Audio
 }
 
 /**
+ * Returns a new, shorter AudioBuffer containing only the kept time ranges (concatenated).
+ * Ranges must be sorted and non-overlapping. Does not mutate the source.
+ */
+export function cutSegments(source: AudioBuffer, keepRanges: TimeRange[]): AudioBuffer {
+  if (keepRanges.length === 0) {
+    throw new Error("All content would be removed. Deselect at least one segment to keep.");
+  }
+
+  const sr = source.sampleRate;
+  const totalSamples = keepRanges.reduce((acc, { start, end }) => {
+    const s = Math.floor(start * sr);
+    const e = Math.min(Math.ceil(end * sr), source.length);
+    return acc + Math.max(0, e - s);
+  }, 0);
+
+  const ctx = new OfflineAudioContext(source.numberOfChannels, totalSamples, sr);
+  const out = ctx.createBuffer(source.numberOfChannels, totalSamples, sr);
+
+  for (let ch = 0; ch < source.numberOfChannels; ch++) {
+    const srcData = source.getChannelData(ch);
+    const outData = out.getChannelData(ch);
+    let writePos = 0;
+    for (const { start, end } of keepRanges) {
+      const s = Math.floor(start * sr);
+      const e = Math.min(Math.ceil(end * sr), source.length);
+      if (e > s) {
+        outData.set(srcData.subarray(s, e), writePos);
+        writePos += e - s;
+      }
+    }
+  }
+
+  return out;
+}
+
+/**
  * Decodes an audio File into an AudioBuffer.
  * Throws if the browser cannot decode the format.
  */

@@ -13,15 +13,18 @@
     "db:url": "node scripts/print-db-url.cjs"
   },
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@headlessui/react": "^2.2.9",
     "@heroicons/react": "^2.2.0",
     "@neondatabase/serverless": "^1.0.2",
+    "@types/fluent-ffmpeg": "^2.1.28",
     "@types/leaflet": "^1.9.21",
     "autoprefixer": "^10.4.27",
     "cheerio": "^1.2.0",
     "clsx": "^2.1.1",
     "drizzle-kit": "^0.31.9",
     "drizzle-orm": "^0.45.1",
+    "fluent-ffmpeg": "^2.1.3",
     "framer-motion": "^12.36.0",
     "leaflet": "^1.9.4",
     "mailparser": "^3.9.4",
