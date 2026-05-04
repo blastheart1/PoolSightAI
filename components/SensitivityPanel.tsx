@@ -5,6 +5,7 @@ import { decodeAudioFile, cutSegments, encodeAudioBuffer } from "@/lib/audio/sil
 import type { FlaggedSegment } from "@/lib/sensitivity/types";
 import type { TimeRange } from "@/lib/audio/silenceSegments";
 import { invertRanges } from "@/lib/video/invertRanges";
+import { cutVideoClientSide } from "@/lib/video/cutVideoClient";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -41,16 +42,37 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+/**
+ * Merges flagged segments that are adjacent or overlapping into single items.
+ * Keeps the category/reason of the first segment in each merged group.
+ */
+function mergeAdjacentSegments(segments: FlaggedSegment[]): FlaggedSegment[] {
+  if (segments.length === 0) return segments;
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const merged: FlaggedSegment[] = [{ ...sorted[0] }];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    const curr = sorted[i];
+    if (curr.start <= last.end) {
+      merged[merged.length - 1] = {
+        ...last,
+        end: Math.max(last.end, curr.end),
+        text: last.text + " " + curr.text,
+      };
+    } else {
+      merged.push({ ...curr });
+    }
+  }
+  return merged;
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface SensitivityPanelProps {
   flaggedSegments: FlaggedSegment[];
-  /** Audio file for client-side audio export */
   audioFile?: File | null;
-  /** Video file + project id for server-side video export */
   videoFile?: File | null;
   projectId?: string;
-  /** Total duration of the recording in seconds — required for video export */
   videoDuration?: number;
   mediaType?: "audio" | "video";
 }
@@ -61,18 +83,21 @@ export function SensitivityPanel({
   flaggedSegments,
   audioFile,
   videoFile,
-  projectId,
+  projectId: _projectId,
   videoDuration,
   mediaType = "audio",
 }: SensitivityPanelProps) {
+  // Merge adjacent/overlapping segments so contiguous flags appear as one item
+  const displaySegments = mergeAdjacentSegments(flaggedSegments);
+
   const [checked, setChecked] = useState<Set<number>>(
-    () => new Set(flaggedSegments.map((s) => s.segmentId))
+    () => new Set(displaySegments.map((s) => s.segmentId))
   );
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
 
   const selectedCount = checked.size;
-  const allChecked = checked.size === flaggedSegments.length;
+  const allChecked = checked.size === displaySegments.length;
   const noneChecked = checked.size === 0;
 
   const toggleSegment = useCallback((id: number) => {
@@ -88,9 +113,9 @@ export function SensitivityPanel({
     setChecked(
       allChecked
         ? new Set()
-        : new Set(flaggedSegments.map((s) => s.segmentId))
+        : new Set(displaySegments.map((s) => s.segmentId))
     );
-  }, [allChecked, flaggedSegments]);
+  }, [allChecked, displaySegments]);
 
   const handleAudioExport = useCallback(async () => {
     if (!audioFile || noneChecked) return;
@@ -98,7 +123,7 @@ export function SensitivityPanel({
     const audioBuffer = await decodeAudioFile(audioFile);
     const totalDuration = audioBuffer.duration;
 
-    const removeRanges: TimeRange[] = flaggedSegments
+    const removeRanges: TimeRange[] = displaySegments
       .filter((s) => checked.has(s.segmentId))
       .map(({ start, end }) => ({ start, end }));
 
@@ -113,43 +138,31 @@ export function SensitivityPanel({
     a.download = `${baseName}_clean.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [audioFile, flaggedSegments, checked, noneChecked]);
+  }, [audioFile, displaySegments, checked, noneChecked]);
 
   const handleVideoExport = useCallback(async () => {
-    if (!videoFile || !projectId || noneChecked) return;
+    if (!videoFile || noneChecked) return;
     if (videoDuration === undefined) {
       throw new Error("Video duration not loaded yet. Wait for the preview to finish loading, then try again.");
     }
 
-    const removeRanges: TimeRange[] = flaggedSegments
+    const removeRanges: TimeRange[] = displaySegments
       .filter((s) => checked.has(s.segmentId))
       .map(({ start, end }) => ({ start, end }));
 
     const keepRanges = invertRanges(videoDuration, removeRanges);
 
-    const formData = new FormData();
-    formData.append("video", videoFile);
-    formData.append("ranges", JSON.stringify(keepRanges));
-
-    const res = await fetch(`/api/projects/${projectId}/cut-video`, {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({})) as { error?: string };
-      throw new Error(d.error ?? "Video processing failed");
-    }
-
-    const blob = await res.blob();
+    // Client-side export — no server upload, avoids payload limits
+    const blob = await cutVideoClientSide(videoFile, keepRanges);
+    const ext = blob.type.includes("mp4") ? "mp4" : "webm";
     const baseName = videoFile.name.replace(/\.[^/.]+$/, "");
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${baseName}_clean.mp4`;
+    a.download = `${baseName}_clean.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [videoFile, projectId, flaggedSegments, checked, noneChecked, videoDuration]);
+  }, [videoFile, displaySegments, checked, noneChecked, videoDuration]);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -175,7 +188,7 @@ export function SensitivityPanel({
   const hasSourceFile = mediaType === "video" ? !!videoFile : !!audioFile;
   const videoDurationMissing = mediaType === "video" && videoDuration === undefined && !!videoFile;
 
-  if (flaggedSegments.length === 0) {
+  if (displaySegments.length === 0) {
     return (
       <div
         role="status"
@@ -197,7 +210,7 @@ export function SensitivityPanel({
         className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3"
       >
         <p className="text-sm font-semibold text-amber-900">
-          {flaggedSegments.length} segment{flaggedSegments.length !== 1 ? "s" : ""} flagged for review
+          {displaySegments.length} segment{displaySegments.length !== 1 ? "s" : ""} flagged for review
         </p>
         <p className="mt-0.5 text-xs text-amber-800">
           Checked segments will be cut from the exported {mediaType}. Uncheck any you are comfortable leaving in.
@@ -207,7 +220,7 @@ export function SensitivityPanel({
       {/* Select all toggle */}
       <div className="flex items-center justify-between px-1">
         <p className="text-xs text-slate-500">
-          {selectedCount} of {flaggedSegments.length} selected for removal
+          {selectedCount} of {displaySegments.length} selected for removal
         </p>
         <button
           type="button"
@@ -220,7 +233,7 @@ export function SensitivityPanel({
 
       {/* Flagged segment list */}
       <ul className="space-y-2" aria-label="Flagged segments">
-        {flaggedSegments.map((seg) => {
+        {displaySegments.map((seg) => {
           const isChecked = checked.has(seg.segmentId);
           const checkboxId = `seg-${seg.segmentId}`;
 
@@ -299,7 +312,7 @@ export function SensitivityPanel({
         ].join(" ")}
       >
         {exporting
-          ? `Processing ${mediaType}…`
+          ? mediaType === "video" ? "Processing video in real-time…" : `Processing ${mediaType}…`
           : noneChecked
           ? "No segments selected"
           : !hasSourceFile
