@@ -228,9 +228,18 @@ export function extractContractLinks(
     links: [],
   };
 
-  if (parsedEmail.html) {
+  // Zapier-constructed EMLs lack a Content-Type: text/html MIME header, so
+  // mailparser routes the HTML body into .text (with .html empty). Detect the
+  // HTML markup in .text and feed it through the cheerio path so the strong-
+  // tag-anchored selectors can locate the Original Contract / Addendums lists.
+  const htmlSource =
+    parsedEmail.html ||
+    (parsedEmail.text && /<[a-z][\s\S]*>/i.test(parsedEmail.text)
+      ? parsedEmail.text
+      : "");
+  if (htmlSource) {
     try {
-      const $ = load(parsedEmail.html);
+      const $ = load(htmlSource);
       result.originalContractUrl = extractOriginalContractUrlFromHTML($);
       result.addendumUrls = extractAddendumUrlsFromHTML($);
     } catch (error) {
