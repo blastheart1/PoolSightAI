@@ -223,20 +223,21 @@ export async function POST(request: NextRequest) {
     }
 
     // --- NEW PROJECT: create from original contract + addendums ---
-    // When the email has no original contract link, fall back to location data
-    // already extracted from the email body by preParseEml (orderNo, address, etc.)
-    // so the project is still created with correct metadata.
-    const locationOverride = !preParse.hasOriginalContract
-      ? {
-          orderNo: preParse.orderNo,
-          clientName: preParse.clientName || undefined,
-          streetAddress: preParse.streetAddress ?? "",
-          city: preParse.city ?? "",
-          state: preParse.state ?? "",
-          zip: preParse.zip ?? "",
-          orderGrandTotal: preParse.orderGrandTotal,
-        }
-      : undefined;
+    // Always use the preParse location as the override. preParseEml runs the
+    // email body through getCleanText (which strips HTML markup) before regex
+    // extraction, so its fields are always clean. runLinksFlow extracts a
+    // fallback location from the original contract HTML via a text-regex
+    // extractor — that path leaks HTML markup when the contract HTML has
+    // tags inside the field rows, so the email-derived values must win.
+    const locationOverride = {
+      orderNo: preParse.orderNo,
+      clientName: preParse.clientName || undefined,
+      streetAddress: preParse.streetAddress ?? "",
+      city: preParse.city ?? "",
+      state: preParse.state ?? "",
+      zip: preParse.zip ?? "",
+      orderGrandTotal: preParse.orderGrandTotal,
+    };
 
     console.log(
       "[webhook/contract-addendum] New project — original contract present:",
