@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { preParseEml } from "../../../../lib/preParseEml";
 import { db } from "../../../../lib/db";
-import { projects, projectSelectedItems, webhookLogs } from "../../../../lib/db/schema";
+import { projects, webhookLogs } from "../../../../lib/db/schema";
 import { eq } from "drizzle-orm";
 import {
   findProjectByOrderNo,
   runLinksFlow,
   insertContractItems,
-  replaceContractItems,
+  appendContractItems,
 } from "../../../../lib/contractParseFlow";
 
 export const runtime = "nodejs";
@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
 
     if (existingProject) {
       // --- EXISTING PROJECT: append new addendums only ---
-      const { items, mergeInfo } = await runLinksFlow({
+      const { newItems, mergeInfo } = await runLinksFlow({
         originalContractUrl: preParse.originalContractUrl ?? "",
         addendumLinks: preParse.addendumUrls,
         existingProjectId: existingProject.id,
@@ -191,21 +191,21 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(response);
       }
 
-      await db
-        .delete(projectSelectedItems)
-        .where(eq(projectSelectedItems.projectId, existingProject.id));
-      await replaceContractItems(existingProject.id, items);
+      // Append only the new addendum rows — existing rows are never touched,
+      // preserving their UUIDs, progress fields, and all downstream references.
+      await appendContractItems(existingProject.id, newItems ?? []);
       await db
         .update(projects)
         .set({ parsedAt: new Date(), updatedAt: new Date() })
         .where(eq(projects.id, existingProject.id));
 
+      const addedCount = newItems?.length ?? 0;
       const response: WebhookResponse = {
         action: "updated",
         projectId: existingProject.id,
         orderNo: preParse.orderNo,
         clientName: preParse.clientName,
-        itemCount: items.length,
+        itemCount: addedCount,
         mergeInfo: mergeInfo ?? undefined,
       };
       await saveWebhookLog({
@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
         clientName: preParse.clientName,
         projectId: existingProject.id,
         emailSubject: logEmailSubject,
-        itemCount: items.length,
+        itemCount: addedCount,
         payloadKeys: logPayloadKeys,
         preParseResult: logPreParse,
         parseResult: mergeInfo as unknown as Record<string, unknown>,

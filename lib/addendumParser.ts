@@ -33,7 +33,7 @@ export function extractAddendumNumber(url: string): string {
 
 export function validateAddendumUrl(url: string): boolean {
   try {
-    const urlPattern = /^https?:\/\/(l1|login)\.prodbx\.com\/go\/view\/\?/i;
+    const urlPattern = /^https?:\/\/[a-z0-9]+\.prodbx\.com\/go\/view\/\?/i;
     return urlPattern.test(url.trim());
   } catch {
     return false;

@@ -62,8 +62,10 @@ export function extractLocation(text: string): Location {
   if (city) location.city = city;
   const state = extractField("State", normalized);
   if (state) location.state = state;
-  const zip = extractField("Zip", normalized);
-  if (zip) location.zip = zip;
+  const zipRaw = extractField("Zip", normalized);
+  if (zipRaw && zipRaw.length <= 20 && !zipRaw.toLowerCase().includes("address")) {
+    location.zip = zipRaw;
+  }
   const email = extractField("Email", normalized);
   if (email) location.email = email;
   const phone = extractField("Phone", normalized);

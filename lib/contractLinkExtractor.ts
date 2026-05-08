@@ -11,20 +11,30 @@ export interface ExtractedContractLinks {
 
 function extractProDBXUrlFromTracking(trackingUrl: string): string | null {
   try {
+    // Handle track.pstmrk.it/3ts/<url-encoded-prodbx-path> format
+    const pstmrkMatch = trackingUrl.match(
+      /track\.pstmrk\.it\/\w+\/([a-z0-9]+\.prodbx\.com%2F[^"'\s<>]+)/i
+    );
+    if (pstmrkMatch) {
+      const decoded = decodeURIComponent(pstmrkMatch[1]);
+      const full = `https://${decoded}`;
+      if (validateAddendumUrl(full)) return full;
+    }
     const decoded = decodeURIComponent(trackingUrl);
     const prodbxMatch = decoded.match(
-      /https?:\/\/(l1|login)\.prodbx\.com\/go\/view\/\?[^\s\/"<>\n\r]+/i
+      /https?:\/\/[a-z0-9]+\.prodbx\.com\/go\/view\/\?[^\s\/"<>\n\r]+/i
     );
     if (prodbxMatch) return prodbxMatch[0];
     const encodedMatch = trackingUrl.match(
-      /l1\.prodbx\.com%2Fgo%2Fview%2F%3F([^%\/]+)/i
+      /([a-z0-9]+\.prodbx\.com)%2Fgo%2Fview%2F%3F([^%\s"'<>\/]+)/i
     );
     if (encodedMatch) {
-      const urlId = encodedMatch[1];
+      const subdomain = encodedMatch[1];
+      const urlId = encodedMatch[2];
       try {
-        return `https://l1.prodbx.com/go/view/?${decodeURIComponent(urlId)}`;
+        return `https://${subdomain}/go/view/?${decodeURIComponent(urlId)}`;
       } catch {
-        return `https://l1.prodbx.com/go/view/?${urlId}`;
+        return `https://${subdomain}/go/view/?${urlId}`;
       }
     }
     return null;
@@ -36,7 +46,7 @@ function extractProDBXUrlFromTracking(trackingUrl: string): string | null {
 function extractUrlsFromText(text: string): string[] {
   const urls: string[] = [];
   const directUrlPattern =
-    /https?:\/\/(l1|login)\.prodbx\.com\/go\/view\/\?[^\s"<>\n\r]+/gi;
+    /https?:\/\/[a-z0-9]+\.prodbx\.com\/go\/view\/\?[^\s"<>\n\r]+/gi;
   const directMatches = text.match(directUrlPattern);
   if (directMatches) {
     directMatches.forEach((url) => {
@@ -62,21 +72,22 @@ function extractUrlFromLink($: ReturnType<typeof load>, link: unknown): string |
   if (href && validateAddendumUrl(href)) return href;
   if (linkText) {
     const urlMatch = linkText.match(
-      /https?:\/\/(l1|login)\.prodbx\.com\/go\/view\/\?[^\s"<>\n\r]+/i
+      /https?:\/\/[a-z0-9]+\.prodbx\.com\/go\/view\/\?[^\s"<>\n\r]+/i
     );
     if (urlMatch) {
       const extracted = urlMatch[0].replace(/[.,;!?]+$/, "");
       if (validateAddendumUrl(extracted)) return extracted;
     }
   }
-  if (href?.includes("aHR0cHM6Ly9sMS5wcm9kYnguY29t")) {
+  // aHR0cHM6Ly9... is base64 for "https://" — match any prodbx.com base64 link
+  if (href && /aHR0cHM6Ly9[a-zA-Z0-9+/]+=*/.test(href)) {
     try {
       const base64Match = href.match(/[^-]+-([^/]+)/);
       if (base64Match?.[1]) {
         const urlDecoded = decodeURIComponent(base64Match[1]);
         const decodedUrl = Buffer.from(urlDecoded, "base64").toString("utf-8");
         const match = decodedUrl.match(
-          /https?:\/\/(l1|login)\.prodbx\.com\/go\/view\/\?[^\s"<>\n\r]+/i
+          /https?:\/\/[a-z0-9]+\.prodbx\.com\/go\/view\/\?[^\s"<>\n\r]+/i
         );
         if (match) {
           const extracted = match[0].replace(/[.,;!?]+$/, "");
@@ -235,7 +246,7 @@ export function extractContractLinks(
     try {
       const text = parsedEmail.text;
       const originalContractMatch = text.match(
-        /Original\s+Contract\s*:?\s*([^\n]+)/i
+        /Original\s+Contract\s*:?\s*([^\n]*(?:\n[^\n]+)?)/i
       );
       if (originalContractMatch) {
         const urls = extractUrlsFromText(originalContractMatch[1]);

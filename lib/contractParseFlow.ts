@@ -13,7 +13,7 @@ import {
 } from "./addendumParser";
 import { db } from "./db";
 import { projects, projectContractItems } from "./db/schema";
-import { eq } from "drizzle-orm";
+import { eq, max } from "drizzle-orm";
 import {
   deduplicateUrls,
   getExistingAddendumIds,
@@ -143,6 +143,7 @@ export async function runLinksFlow(opts: {
   location: Location;
   items: OrderItem[];
   mergeInfo?: MergeInfo;
+  newItems?: OrderItem[];
 }> {
   const { originalContractUrl, addendumLinks, locationOverride, existingProjectId } =
     opts;
@@ -235,23 +236,25 @@ export async function runLinksFlow(opts: {
     ? { ...location, contractDate }
     : location;
 
-  return { location: locationWithDate, items: filtered, mergeInfo };
+  // For existing-project updates, expose only the newly appended rows so the
+  // webhook can INSERT them without touching existing rows.
+  const newItems = existingData
+    ? filterItems(merged.slice(existingData.items.length), true, true)
+    : undefined;
+
+  return { location: locationWithDate, items: filtered, mergeInfo, newItems };
 }
 
-/**
- * Insert contract items into the database for a project (single bulk statement).
- * Reusable by both POST /api/projects and the webhook.
- */
-export async function insertContractItems(
+/** Map OrderItem[] to DB row objects, with rowIndex starting at startIndex. */
+function mapItemsToRows(
   projectId: string,
-  items: OrderItem[]
-): Promise<void> {
-  if (!db) throw new Error("Database not configured");
-  if (items.length === 0) return;
-  const rows = items.map((it, i) => ({
+  items: ReadonlyArray<OrderItem>,
+  startIndex: number
+) {
+  return items.map((it, i) => ({
     projectId,
-    rowIndex: i,
-    itemType: it.type ?? "item",
+    rowIndex: startIndex + i,
+    itemType: (it.type ?? "item") as "maincategory" | "subcategory" | "item",
     productService: it.productService ?? "",
     qty: toDec(it.qty),
     rate: toDec(it.rate),
@@ -272,12 +275,46 @@ export async function insertContractItems(
     addendumUrlId: it.addendumUrlId ?? null,
     isBlankRow: it.isBlankRow === true,
   }));
-  await db.insert(projectContractItems).values(rows);
+}
+
+/**
+ * Insert contract items into the database for a project (single bulk statement).
+ * Reusable by both POST /api/projects and the webhook.
+ */
+export async function insertContractItems(
+  projectId: string,
+  items: OrderItem[]
+): Promise<void> {
+  if (!db) throw new Error("Database not configured");
+  if (items.length === 0) return;
+  await db.insert(projectContractItems).values(mapItemsToRows(projectId, items, 0));
+}
+
+/**
+ * Append new contract items for a project without touching existing rows.
+ * Queries MAX(rowIndex) and inserts starting at maxRowIndex + 1.
+ * Used by the webhook when an existing project receives new addendums.
+ */
+export async function appendContractItems(
+  projectId: string,
+  items: OrderItem[]
+): Promise<void> {
+  if (!db) throw new Error("Database not configured");
+  if (items.length === 0) return;
+  const [result] = await db
+    .select({ maxIdx: max(projectContractItems.rowIndex) })
+    .from(projectContractItems)
+    .where(eq(projectContractItems.projectId, projectId));
+  const startIndex = (result?.maxIdx != null ? Number(result.maxIdx) : -1) + 1;
+  await db
+    .insert(projectContractItems)
+    .values(mapItemsToRows(projectId, items, startIndex));
 }
 
 /**
  * Delete all contract items for a project, then insert the new set.
- * Used by both PATCH and webhook for the replace-with-merged-data pattern.
+ * Used by PATCH /api/projects/[id] for intentional full re-parse from the UI.
+ * The webhook uses appendContractItems instead to preserve existing row UUIDs.
  */
 export async function replaceContractItems(
   projectId: string,
