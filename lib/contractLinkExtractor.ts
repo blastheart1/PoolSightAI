@@ -13,10 +13,10 @@ function extractProDBXUrlFromTracking(trackingUrl: string): string | null {
   try {
     // Handle track.pstmrk.it/3ts/<url-encoded-prodbx-path> format
     const pstmrkMatch = trackingUrl.match(
-      /track\.pstmrk\.it\/\w+\/([a-z0-9]+\.prodbx\.com%2F[^"'\s<>]+)/i
+      /track\.pstmrk\.it\/\w+\/([a-z0-9]+\.prodbx\.com%2F[^"'\s<>\/]+)/i
     );
     if (pstmrkMatch) {
-      const decoded = decodeURIComponent(pstmrkMatch[1]);
+      const decoded = decodeURIComponent(pstmrkMatch[1]).replace(/[.,;!?]+$/, "");
       const full = `https://${decoded}`;
       if (validateAddendumUrl(full)) return full;
     }
@@ -259,7 +259,7 @@ export function extractContractLinks(
     try {
       const text = parsedEmail.text;
       const addendumsMatch = text.match(
-        /Addendums\s*:?\s*([\s\S]+?)(?=\n\n|\n[A-Z]|$)/i
+        /Addendums\s*:?\s*([\s\S]+)/i
       );
       if (addendumsMatch) {
         result.addendumUrls.push(...extractUrlsFromText(addendumsMatch[1]));
