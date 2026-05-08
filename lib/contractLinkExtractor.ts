@@ -112,14 +112,14 @@ function extractOriginalContractUrlFromHTML($: ReturnType<typeof load>): string 
   if (originalContractSection.length === 0) return null;
 
   const parent = originalContractSection.parent();
-  let link = parent.find('a[href*="prodbx.com"]').first();
+  let link = parent.find('a[href*="prodbx.com"], a[href*="track.pstmrk.it"]').first();
 
   if (link.length === 0) {
     const parentDiv = originalContractSection.closest("div");
     if (parentDiv.length > 0) {
       const nextSibling = parentDiv.next("div");
       if (nextSibling.length > 0) {
-        const allLinks = nextSibling.find('a[href*="prodbx.com"]');
+        const allLinks = nextSibling.find('a[href*="prodbx.com"], a[href*="track.pstmrk.it"]');
         allLinks.each((_i, el) => {
           const $linkEl = $(el);
           if ($linkEl.text().trim().length > 0 && link.length === 0) {
@@ -148,7 +148,7 @@ function extractOriginalContractUrlFromHTML($: ReturnType<typeof load>): string 
           foundSection = true;
         }
       } else {
-        const divLinks = $div.find('a[href*="prodbx.com"]');
+        const divLinks = $div.find('a[href*="prodbx.com"], a[href*="track.pstmrk.it"]');
         if (divLinks.length > 0 && link.length === 0) {
           divLinks.each((_idx, el) => {
             const $linkEl = $(el);
@@ -177,13 +177,13 @@ function extractAddendumUrlsFromHTML($: ReturnType<typeof load>): string[] {
   });
   if (addendumsSection.length === 0) return addendumUrls;
 
-  let links = addendumsSection.parent().find('a[href*="prodbx.com"]');
+  let links = addendumsSection.parent().find('a[href*="prodbx.com"], a[href*="track.pstmrk.it"]');
   if (links.length === 0) {
     const parentDiv = addendumsSection.closest("div");
     if (parentDiv.length > 0) {
       let nextSibling = parentDiv.next("div");
       while (nextSibling.length > 0 && links.length === 0) {
-        links = nextSibling.find('a[href*="prodbx.com"]');
+        links = nextSibling.find('a[href*="prodbx.com"], a[href*="track.pstmrk.it"]');
         if (links.length === 0) nextSibling = nextSibling.next("div");
         else break;
       }
@@ -204,7 +204,7 @@ function extractAddendumUrlsFromHTML($: ReturnType<typeof load>): string[] {
           foundSection = true;
         }
       } else {
-        $div.find('a[href*="prodbx.com"]').each((_idx, linkEl) => {
+        $div.find('a[href*="prodbx.com"], a[href*="track.pstmrk.it"]').each((_idx, linkEl) => {
           const extracted = extractUrlFromLink($, linkEl);
           if (extracted) addendumUrls.push(extracted);
         });
@@ -238,11 +238,9 @@ export function extractContractLinks(
     }
   }
 
-  if (
-    !result.originalContractUrl &&
-    result.addendumUrls.length === 0 &&
-    parsedEmail.text
-  ) {
+  // Run text fallbacks independently so a missing original contract URL is
+  // still recovered even when addendum URLs were already found from HTML.
+  if (!result.originalContractUrl && parsedEmail.text) {
     try {
       const text = parsedEmail.text;
       const originalContractMatch = text.match(
@@ -252,6 +250,14 @@ export function extractContractLinks(
         const urls = extractUrlsFromText(originalContractMatch[1]);
         if (urls.length > 0) result.originalContractUrl = urls[0];
       }
+    } catch (error) {
+      console.warn("[Contract Link Extractor] Error parsing text (original contract):", error);
+    }
+  }
+
+  if (result.addendumUrls.length === 0 && parsedEmail.text) {
+    try {
+      const text = parsedEmail.text;
       const addendumsMatch = text.match(
         /Addendums\s*:?\s*([\s\S]+?)(?=\n\n|\n[A-Z]|$)/i
       );
@@ -259,7 +265,7 @@ export function extractContractLinks(
         result.addendumUrls.push(...extractUrlsFromText(addendumsMatch[1]));
       }
     } catch (error) {
-      console.warn("[Contract Link Extractor] Error parsing text:", error);
+      console.warn("[Contract Link Extractor] Error parsing text (addendums):", error);
     }
   }
 
